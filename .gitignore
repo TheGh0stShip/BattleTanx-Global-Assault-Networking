@@ -8,4 +8,6 @@ __pycache__/
 .pytest_cache/
 .coverage
 local.settings.json
+infra/azure/*.local.json
+infra/azure/relay-vm.json
 *.zip

@@ -55,6 +55,35 @@ ACI is useful for an explicitly time-bounded test. Neither should be deployed
 until its monthly compute, static-IP and egress ceiling are reviewed. The relay
 does not scale to zero while preserving a stable UDP endpoint.
 
+`infra/azure/relay-vm.bicep` defines the production relay boundary without
+deploying the application or carrying its shared secret. It creates one small
+Ubuntu VM, a 32 GiB Standard SSD, a static Standard IPv4 address, and an NSG
+with exactly two inbound exceptions:
+
+- UDP `30420` from the Internet for authenticated relay datagrams;
+- TCP `22` only from the explicitly supplied operator CIDR.
+
+There are no TCP gameplay listeners, UPnP/NAT-PMP components, or player-facing
+inbound rules. Clients and hosts both initiate outbound UDP to the relay. The
+example parameters file contains documentation placeholders only and must not
+be deployed unchanged.
+
+Validate and preview the resources before the billing gate:
+
+```sh
+az bicep build --file infra/azure/relay-vm.bicep
+az deployment group what-if \
+  --resource-group btga-multiplayer-prod \
+  --template-file infra/azure/relay-vm.bicep \
+  --parameters @infra/azure/relay-vm.parameters.local.json
+```
+
+Keep the local parameters file and all private keys untracked. Creating the VM,
+disk and public address starts recurring billing, so `what-if` is not authority
+to deploy. The relay container and `BTGA_MASTER_SECRET` are installed only
+after explicit deployment approval; the secret must never appear in a Bicep
+file, command log, container layer or GitHub artifact.
+
 ## Cost and safety controls
 
 - Keep `alwaysReady` empty and cap maximum scale-out conservatively.

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "dnsLabelPrefix": {
+      "value": "choose-a-globally-unique-btga-relay-name"
+    },
+    "adminUsername": {
+      "value": "btgaadmin"
+    },
+    "adminSshPublicKey": {
+      "value": "ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY"
+    },
+    "adminSourceCidr": {
+      "value": "203.0.113.4/32"
+    }
+  }
+}
