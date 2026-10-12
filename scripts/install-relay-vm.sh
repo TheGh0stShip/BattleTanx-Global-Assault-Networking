@@ -45,7 +45,7 @@ systemctl enable --now docker
 # maintenance is performed through Azure Run Command or the serial console.
 systemctl disable --now ssh.service 2>/dev/null || true
 systemctl disable --now ssh.socket 2>/dev/null || true
-dpkg-reconfigure -f noninteractive unattended-upgrades
+systemctl enable --now unattended-upgrades.service
 
 docker build --pull --tag btga-udp-relay:local "$repo_root/server/relay"
 
