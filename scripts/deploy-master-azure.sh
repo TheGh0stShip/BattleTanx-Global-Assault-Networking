@@ -46,9 +46,9 @@ count=$(az functionapp function list \
     --resource-group "$resource_group" \
     --name "$function_app" \
     --query 'length(@)' -o tsv)
-[ "$count" = 6 ] || {
-    echo "deployment indexed $count functions; expected 6" >&2
+[ "$count" = 8 ] || {
+    echo "deployment indexed $count functions; expected 8" >&2
     exit 1
 }
 
-echo "deployed and indexed 6 functions"
+echo "deployed and indexed 8 functions"

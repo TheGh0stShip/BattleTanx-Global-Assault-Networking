@@ -144,6 +144,9 @@ async function handle(operation, req, bindingData = {}, serviceFactory = product
             return response(await service.publicSnapshot());
         }
         if (operation === "dashboard") {
+            if (bindingData.path) {
+                return response({ error: "not_found", message: "route not found" }, 404);
+            }
             return htmlResponse(dashboardHtml(await service.publicSnapshot()));
         }
         const lobbyId = bindingData.lobbyId;

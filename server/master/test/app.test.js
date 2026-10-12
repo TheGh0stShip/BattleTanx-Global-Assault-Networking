@@ -52,6 +52,8 @@ test("dashboard and status expose live public counts", async () => {
     assert.match(dashboard.body, /Games in progress/u);
     assert.match(dashboard.body, /Desert &lt;Duel&gt;/u);
     assert.doesNotMatch(dashboard.body, /203\.0\.113\.7/u);
+    const missing = await handle("dashboard", request("GET"), { path: "missing" }, factory);
+    assert.equal(missing.status, 404);
 });
 
 test("HTTP lifecycle registers, lists, joins, validates, and removes", async () => {
