@@ -18,6 +18,15 @@ jobs:
         run: cmake --build build --config Release
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Install reusable protocol package
+        run: cmake --install build --config Release --prefix build/install
+      - name: Build external consumer
+        run: >-
+          cmake -S tests/consumer -B build/consumer
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build/install
+      - name: Link external consumer
+        run: cmake --build build/consumer --config Release
 
   master:
     runs-on: ubuntu-latest

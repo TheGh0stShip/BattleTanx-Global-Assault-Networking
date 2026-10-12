@@ -40,6 +40,16 @@ The protocol library does not allocate memory and does not depend on SDL,
 POSIX sockets, Winsock or C++. Ports supply HTTPS, UDP, monotonic-time and
 cryptographic-randomness adapters at the integration boundary.
 
+It is also an installable CMake package:
+
+```sh
+cmake --install build --prefix /your/prefix
+```
+
+Consumers use `find_package(BattleTanxGANetworking CONFIG REQUIRED)` and link
+`BattleTanxGA::NetProtocol`. CI builds a separate consumer project against the
+installed package on Linux and Windows.
+
 See [architecture.md](docs/architecture.md) for the topology and platform
 contract, [api.md](docs/api.md) for the master-service contract, and
 [deployment.md](docs/deployment.md) for the reproducible Azure workflow.
