@@ -26,10 +26,14 @@ publish to any other runtime:
 scripts/package-master.sh
 scripts/deploy-master-azure.sh RESOURCE_GROUP FUNCTION_APP
 scripts/test-master-api.sh https://HOST/api/v1
+node scripts/test-public-relay.js https://HOST/api/v1
 ```
 
 The package script runs unit tests and creates a source package. Azure performs
 the Linux remote build, avoiding host-architecture dependency mistakes.
+The public relay smoke test creates a temporary lobby through the deployed
+master, binds two local UDP peers with its signed tokens, forwards one gameplay
+datagram through the public relay, and removes the temporary lobby.
 
 ## DNS and TLS
 
