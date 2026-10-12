@@ -45,7 +45,9 @@ systemctl enable --now docker
 # maintenance is performed through Azure Run Command or the serial console.
 systemctl disable --now ssh.service 2>/dev/null || true
 systemctl disable --now ssh.socket 2>/dev/null || true
-systemctl enable --now unattended-upgrades.service
+# Enable the next scheduled security-update pass without making first
+# deployment wait for every image update synchronously on the smallest VM.
+systemctl enable unattended-upgrades.service
 
 docker build --pull --tag btga-udp-relay:local "$repo_root/server/relay"
 
