@@ -148,12 +148,17 @@ class MasterService {
             current_players: currentPlayers,
             host_ip: observedIp,
             udp_port: integer(data, "udp_port", 1, 65535),
+            session_id: crypto.randomBytes(8).toString("hex"),
             secret_hash: this.secretHash(lobbyId, hostSecret),
             expires_at: now + LOBBY_TTL_SECONDS,
             updated_at: now
         };
         await this.store.put(lobby);
-        return { lobby: MasterService.publicLobby(lobby), host_secret: hostSecret };
+        return {
+            lobby: MasterService.publicLobby(lobby),
+            host_secret: hostSecret,
+            session_id: lobby.session_id
+        };
     }
 
     async listLobbies(protocol, build) {
@@ -217,6 +222,7 @@ class MasterService {
         }
         const payload = {
             lobby: lobbyId,
+            session: lobby.session_id,
             platform,
             expires: now + JOIN_TOKEN_TTL_SECONDS,
             nonce: crypto.randomBytes(8).toString("hex")
@@ -228,6 +234,7 @@ class MasterService {
             .digest("base64url");
         return {
             host: { address: lobby.host_ip, udp_port: lobby.udp_port },
+            session_id: lobby.session_id,
             join_token: `${encoded}.${signature}`,
             expires_at: payload.expires
         };
@@ -255,6 +262,7 @@ class MasterService {
             const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
             if (
                 payload.lobby !== lobbyId ||
+                payload.session !== lobby.session_id ||
                 !Number.isInteger(payload.expires) ||
                 payload.expires < Math.floor(this.clock())
             ) {

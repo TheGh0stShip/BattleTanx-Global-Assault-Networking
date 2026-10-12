@@ -32,6 +32,13 @@ The master is not a simulation server. It does not receive world snapshots or
 inputs. This makes scale-to-zero control-plane hosting practical and keeps the
 gameplay latency path independent of Azure.
 
+The master generates a cryptographically random 64-bit gameplay session ID at
+registration. It returns the ID to the host, omits it from lobby listings,
+returns it to a joining client with the UDP endpoint, and cryptographically
+binds it into the short-lived join token. The 16-character hexadecimal text
+form avoids precision loss in JSON; ports parse it into the fixed-width
+`uint64_t` packet-header field.
+
 The production master runs on Node.js 22 in Azure Functions Flex Consumption.
 It scales to zero, keeps no lobby state in process memory, and stores only
 bounded discovery metadata in Azure Table Storage. Gameplay packets never

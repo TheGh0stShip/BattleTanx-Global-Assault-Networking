@@ -41,7 +41,9 @@ request 201 "$tmp/register.json" \
     "$base/lobbies"
 lobby_id=$(jq -r '.lobby.id' "$tmp/register.json")
 host_secret=$(jq -r '.host_secret' "$tmp/register.json")
+registered_session_id=$(jq -r '.session_id' "$tmp/register.json")
 test -n "$lobby_id" && test -n "$host_secret"
+printf '%s' "$registered_session_id" | grep -Eq '^[0-9a-f]{16}$'
 
 request 200 "$tmp/list.json" "$base/lobbies?protocol=1&build=conformance-v1"
 jq -e --arg id "$lobby_id" '.lobbies|any(.id==$id)' "$tmp/list.json" >/dev/null
@@ -58,14 +60,17 @@ request 200 "$tmp/join.json" \
     --data '{"protocol":1,"build":"conformance-v1","platform":"vita"}' \
     "$base/lobbies/$lobby_id/join"
 join_token=$(jq -r '.join_token' "$tmp/join.json")
-test -n "$join_token"
+session_id=$(jq -r '.session_id' "$tmp/join.json")
+test -n "$join_token" && test "$session_id" = "$registered_session_id"
 
 request 200 "$tmp/validate.json" \
     -H 'content-type: application/json' \
     -H "authorization: Bearer $host_secret" \
     --data "{\"join_token\":\"$join_token\"}" \
     "$base/lobbies/$lobby_id/validate-join"
-jq -e '.valid==true and .claims.platform=="vita"' "$tmp/validate.json" >/dev/null
+jq -e --arg session "$registered_session_id" \
+    '.valid==true and .claims.platform=="vita" and .claims.session==$session' \
+    "$tmp/validate.json" >/dev/null
 
 request 204 "$tmp/delete.txt" \
     -X DELETE -H "authorization: Bearer $host_secret" \

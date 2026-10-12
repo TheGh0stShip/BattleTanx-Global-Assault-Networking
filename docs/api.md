@@ -24,8 +24,10 @@ Table Storage and is suitable for deployment checks.
 | `current_players` | 1–`max_players` |
 | `udp_port` | 1–65535 |
 
-The response includes a public `lobby` and a `host_secret`. The secret is
-returned exactly once and must not be logged or sent to peers.
+The response includes a public `lobby`, a `host_secret`, and a cryptographically
+random 64-bit `session_id` encoded as exactly 16 hexadecimal characters. The
+secret is returned exactly once and must not be logged or sent to peers. The
+host parses `session_id` into the fixed-width gameplay packet-header field.
 
 `GET /lobbies?protocol=1&build=BUILD` lists compatible, unexpired lobbies.
 Host addresses and credentials are intentionally omitted.
@@ -43,8 +45,11 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
 ## Joining
 
 `POST /lobbies/{id}/join` accepts `protocol`, `build`, and `platform`. It
-returns the observed host endpoint and an HMAC-authenticated join token that
-expires after 30 seconds. The token is opaque to clients.
+returns the observed host endpoint, the same 16-character hexadecimal
+`session_id`, and an HMAC-authenticated join token that expires after 30
+seconds. The token is opaque to clients. `session_id` is bound into the token
+and converts exactly to the unsigned 64-bit gameplay header field without
+depending on JSON number precision.
 
 ## Errors
 

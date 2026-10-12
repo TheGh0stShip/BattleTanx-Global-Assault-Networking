@@ -41,6 +41,7 @@ test("HTTP lifecycle registers, lists, joins, validates, and removes", async () 
     }), {}, factory);
     assert.equal(result.status, 201);
     const created = JSON.parse(result.body);
+    assert.match(created.session_id, /^[0-9a-f]{16}$/);
     const lobbyId = created.lobby.id;
     const authorization = `Bearer ${created.host_secret}`;
 
@@ -54,6 +55,7 @@ test("HTTP lifecycle registers, lists, joins, validates, and removes", async () 
     }), { lobbyId }, factory);
     assert.equal(result.status, 200);
     const joined = JSON.parse(result.body);
+    assert.equal(joined.session_id, created.session_id);
 
     result = await handle("validateJoin", request("POST", { join_token: joined.join_token }, {
         headers: { authorization }

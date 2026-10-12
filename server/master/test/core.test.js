@@ -25,6 +25,7 @@ function fixture() {
 test("lobby lifecycle exposes only public fields", async () => {
     const { service, registration } = fixture();
     const result = await service.register(registration, "203.0.113.7");
+    assert.match(result.session_id, /^[0-9a-f]{16}$/);
     assert.equal(result.lobby.host_ip, undefined);
     assert.equal(result.lobby.secret_hash, undefined);
     assert.equal((await service.listLobbies(1, "pc-v0.3.0")).length, 1);
@@ -52,9 +53,11 @@ test("join tokens are bound to a lobby and expire", async () => {
         platform: "vita"
     });
     assert.deepEqual(joined.host, { address: "203.0.113.7", udp_port: 30420 });
+    assert.equal(joined.session_id, result.session_id);
     const auth = `Bearer ${result.host_secret}`;
     const payload = await service.validateJoinToken(result.lobby.id, auth, joined.join_token);
     assert.equal(payload.platform, "vita");
+    assert.equal(payload.session, result.session_id);
     state.now += 31;
     await assert.rejects(
         service.validateJoinToken(result.lobby.id, auth, joined.join_token),
