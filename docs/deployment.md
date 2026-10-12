@@ -104,8 +104,9 @@ command is:
 sudo scripts/install-relay-vm.sh
 ```
 
-The installer prompts for the public relay verification key. It builds the
-relay image locally, writes the public configuration to
+The installer reads `BTGA_RELAY_PUBLIC_KEY` or prompts for the public relay
+verification key in an interactive session. It builds the relay image locally,
+writes the public configuration to
 `/etc/btga-relay.env`, and installs an auto-restarting systemd unit. No master
 secret or private signing key is present on the relay VM. It disables the SSH
 daemon, enables automatic security updates, and runs the container read-only,

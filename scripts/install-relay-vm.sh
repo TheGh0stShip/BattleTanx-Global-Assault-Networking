@@ -17,8 +17,12 @@ if [ "$relay_port" -lt 1024 ] || [ "$relay_port" -gt 65535 ]; then
     exit 1
 fi
 
-printf 'Enter the Base64 Ed25519 relay public key: ' >&2
-IFS= read -r relay_public_key
+if [ -n "${BTGA_RELAY_PUBLIC_KEY:-}" ]; then
+    relay_public_key=$BTGA_RELAY_PUBLIC_KEY
+else
+    printf 'Enter the Base64 Ed25519 relay public key: ' >&2
+    IFS= read -r relay_public_key
+fi
 
 key_bytes=$(printf %s "$relay_public_key" | wc -c | tr -d ' ')
 if [ "$key_bytes" -lt 40 ]; then
