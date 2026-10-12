@@ -84,6 +84,9 @@ int main(void) {
     CHECK(btga_relay_client_wrap(&client, BTGA_RELAY_BROADCAST_SLOT, inner,
                                   sizeof(inner), encoded, sizeof(encoded)) == 0U);
 
+    net_header.peer_id = 0U;
+    CHECK(btga_net_encode_header(inner, sizeof(inner), &net_header) ==
+          sizeof(inner));
     output.message_type = BTGA_RELAY_MSG_DATA;
     output.session_id = input.session_id;
     output.source_slot = 0U;

@@ -10,6 +10,7 @@ add_library(btga_net_protocol STATIC
     protocol/src/btga_delivery.c
     protocol/src/btga_gameplay.c
     protocol/src/btga_handshake.c
+    protocol/src/btga_lobby.c
     protocol/src/btga_net.c
     protocol/src/btga_relay.c
     protocol/src/btga_relay_client.c
@@ -137,4 +138,22 @@ if(BTGA_NET_BUILD_TESTS)
         target_compile_options(btga_net_relay_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME relay_envelope_codec COMMAND btga_net_relay_tests)
+
+    add_executable(btga_net_lobby_tests tests/lobby_tests.c)
+    target_link_libraries(btga_net_lobby_tests PRIVATE btga_net_protocol)
+    if(MSVC)
+        target_compile_options(btga_net_lobby_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(btga_net_lobby_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME synchronized_lobby_state COMMAND btga_net_lobby_tests)
+
+    add_executable(btga_net_online_flow_tests tests/online_flow_tests.c)
+    target_link_libraries(btga_net_online_flow_tests PRIVATE btga_net_protocol)
+    if(MSVC)
+        target_compile_options(btga_net_online_flow_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(btga_net_online_flow_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME relay_lobby_end_to_end COMMAND btga_net_online_flow_tests)
 endif()

@@ -71,6 +71,7 @@ size_t btga_relay_client_wrap(const BtgaRelayClient* client,
                               size_t destination_size) {
     BtgaRelayEnvelope envelope;
     BtgaNetHeader header;
+    int unassigned_handshake;
     if (client == NULL || client->state != BTGA_RELAY_CLIENT_BOUND ||
         inner_datagram == NULL ||
         !btga_net_decode_header(&header, inner_datagram, inner_size) ||
@@ -82,6 +83,10 @@ size_t btga_relay_client_wrap(const BtgaRelayClient* client,
          (destination_slot == 0U || destination_slot >= BTGA_NET_MAX_PLAYERS))) {
         return 0U;
     }
+    unassigned_handshake = header.peer_id == BTGA_NET_UNASSIGNED_PEER_ID &&
+        (header.message_type == BTGA_NET_MSG_HELLO ||
+         header.message_type == BTGA_NET_MSG_AUTHENTICATE);
+    if (header.peer_id != client->relay_slot && !unassigned_handshake) return 0U;
     envelope.message_type = BTGA_RELAY_MSG_DATA;
     envelope.session_id = client->session_id;
     envelope.source_slot = client->relay_slot;
@@ -98,6 +103,7 @@ int btga_relay_client_unwrap(const BtgaRelayClient* client,
                              size_t* inner_size, uint16_t* source_slot) {
     BtgaRelayEnvelope envelope;
     BtgaNetHeader header;
+    int unassigned_handshake;
     if (client == NULL || inner_datagram == NULL || inner_size == NULL ||
         source_slot == NULL || client->state != BTGA_RELAY_CLIENT_BOUND ||
         !btga_relay_decode(&envelope, relay_datagram, relay_size) ||
@@ -106,9 +112,15 @@ int btga_relay_client_unwrap(const BtgaRelayClient* client,
         envelope.destination_slot != client->relay_slot ||
         envelope.payload_size < BTGA_NET_HEADER_SIZE ||
         !btga_net_decode_header(&header, envelope.payload,
-                                envelope.payload_size) ||
-        header.session_id != client->session_id ||
+                                envelope.payload_size)) {
+        return 0;
+    }
+    unassigned_handshake = header.peer_id == BTGA_NET_UNASSIGNED_PEER_ID &&
+        (header.message_type == BTGA_NET_MSG_HELLO ||
+         header.message_type == BTGA_NET_MSG_AUTHENTICATE);
+    if (header.session_id != client->session_id ||
         (header.flags & BTGA_NET_FLAG_RELAYED) == 0U ||
+        (header.peer_id != envelope.source_slot && !unassigned_handshake) ||
         (client->role == BTGA_RELAY_ROLE_CLIENT && envelope.source_slot != 0U) ||
         (client->role == BTGA_RELAY_ROLE_HOST &&
          (envelope.source_slot == 0U || envelope.source_slot >= BTGA_NET_MAX_PLAYERS))) {

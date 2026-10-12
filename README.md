@@ -17,6 +17,8 @@ or individual game port.
 - Socket-free endpoint codec with per-peer replay filtering and session checks
 - Allocation-free UDP admission and relay-envelope codecs
 - Allocation-free relay client state machine that starts explicitly offline
+- Host-authoritative roster, tank/team selection, ready, load and start state
+- End-to-end relay/transport/lobby selection conformance test
 - Allocation-free client/host admission state machines
 - Fixed-capacity reliable-send tracking with ACK release and retry expiry
 - Endian-stable batches of original N64 controller input by simulation tick

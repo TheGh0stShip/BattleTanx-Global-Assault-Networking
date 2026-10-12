@@ -149,7 +149,8 @@ class RelayCore {
             binding === undefined ||
             binding.sessionKey !== envelope.sessionId.toString(16).padStart(16, "0") ||
             binding.peer.slot !== envelope.sourceSlot ||
-            !validInnerDatagram(envelope.payload, envelope.sessionId) ||
+            !validInnerDatagram(envelope.payload, envelope.sessionId,
+                                envelope.sourceSlot) ||
             !this.consume(binding.peer, packetSize, now)
         ) {
             return [];

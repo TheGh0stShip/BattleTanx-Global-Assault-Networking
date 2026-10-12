@@ -93,14 +93,19 @@ function verifyAdmissionToken(token, secretKey, nowSeconds) {
     return claims;
 }
 
-function validInnerDatagram(packet, sessionId) {
-    return Buffer.isBuffer(packet) &&
+function validInnerDatagram(packet, sessionId, sourceSlot) {
+    if (!(Buffer.isBuffer(packet) &&
         packet.length >= 32 && packet.length <= MAX_INNER_DATAGRAM &&
         packet.readUInt32BE(0) === 0x42544741 &&
         packet.readUInt16BE(4) === 1 &&
         (packet[7] & 0x04) !== 0 &&
         packet.readBigUInt64BE(8) === sessionId &&
-        packet.readUInt16BE(28) === packet.length - 32;
+        packet.readUInt16BE(28) === packet.length - 32)) {
+        return false;
+    }
+    const peerId = packet.readUInt16BE(30);
+    const unassignedHandshake = peerId === 0xffff && (packet[6] === 1 || packet[6] === 3);
+    return peerId === sourceSlot || unassignedHandshake;
 }
 
 module.exports = {

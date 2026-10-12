@@ -92,6 +92,32 @@ authenticate the packet's peer-to-player assignment rather than trusting the
 payload's player ID. World snapshots remain game-specific and are not defined
 until the recovered game-state ownership boundary is audited.
 
+## Synchronized lobby and player selection
+
+The portable `BtgaLobbyState` owns the pre-match authority. Its initial v1
+limit is deliberately four players even though the packet header reserves 16
+peer IDs. The host admits authenticated relay peers, chooses the map and mode,
+then advances through these phases:
+
+1. `ASSEMBLING`: roster changes are accepted; gameplay selection is locked.
+2. `SELECTING`: each authenticated peer submits its tank and team, then ready.
+3. `LOADING`: the host has locked the roster and selections and broadcast the
+   random seed plus initial simulation tick. Selection changes are rejected.
+4. `RUNNING`: reached only after every still-connected peer reports loaded.
+
+Commands contain no player ID. The host passes the authenticated relay source
+slot to `btga_lobby_apply_command`, so a client cannot select or ready another
+player by changing payload bytes. Any selection change clears that player's
+ready bit. A disconnect during loading returns the match to selection instead
+of silently starting with a different roster.
+
+The host broadcasts a fixed 40-byte, big-endian snapshot after authoritative
+changes. It contains connected/ready/loaded masks, map, mode, all four
+selections, seed and start tick. It contains no pointers, native structs or
+floating-point values. The conformance test carries a guest selection through
+endpoint framing and relay encapsulation, applies it under the relay identity,
+then carries the host's locked loading snapshot back to the guest.
+
 ## Topology
 
 The first production topology is host-authoritative and relay-first:

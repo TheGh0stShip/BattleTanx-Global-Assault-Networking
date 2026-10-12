@@ -76,6 +76,10 @@ test("relay binds signed peers and enforces host topology", async () => {
     assert.deepEqual(core.handle(
         encodeEnvelope(TYPE_DATA, auth.sessionId, 1, BROADCAST_SLOT, gameplay), client
     ), []);
+    gameplay.writeUInt16BE(2, 30);
+    assert.deepEqual(core.handle(
+        encodeEnvelope(TYPE_DATA, auth.sessionId, 1, 0, gameplay), client
+    ), []);
 });
 
 test("invalid and replayed admission tokens cannot redirect traffic", async () => {
