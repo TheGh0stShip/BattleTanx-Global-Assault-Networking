@@ -23,8 +23,8 @@ param adminSshPublicKey string
 @maxValue(65535)
 param relayPort int = 30420
 
-@description('Smallest practical production VM. Override only after reviewing recurring cost.')
-param vmSize string = 'Standard_B1ls'
+@description('One-vCPU relay VM with 1 GiB RAM. Override only after reviewing recurring cost.')
+param vmSize string = 'Standard_B1s'
 
 @description('Email address that receives resource-group cost alerts.')
 @secure()

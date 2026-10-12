@@ -66,6 +66,9 @@ does not claim that an Internet service can be risk-free.
 - VM size, disk size, public IP count, session count, process resources, log
   size, and relay egress are explicitly bounded. Scaling requires a reviewed
   configuration change rather than an automatic fan-out policy.
+- The default B1s relay has one vCPU and 1 GiB RAM. One core is sufficient for
+  the single-process forwarding workload; B1s was selected over B1ls to avoid
+  an unsafe 0.5 GiB operating-system/container memory margin.
 
 ## Logging and privacy
 
