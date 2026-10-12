@@ -4,12 +4,33 @@ const dgram = require("node:dgram");
 const { RelayCore } = require("./core");
 const { MAX_DATAGRAM } = require("./protocol");
 
+function boundedInteger(name, fallback, minimum, maximum) {
+    const text = process.env[name];
+    if (text === undefined || text === "") return fallback;
+    const value = Number(text);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+        throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
+    }
+    return value;
+}
+
 function createRelayServer(options = {}) {
     const secret = options.secret || process.env.BTGA_MASTER_SECRET;
     if (!secret || Buffer.byteLength(secret) < 32) {
         throw new Error("BTGA_MASTER_SECRET must contain at least 32 bytes");
     }
-    const core = new RelayCore(Buffer.from(secret), options);
+    const core = new RelayCore(Buffer.from(secret), {
+        ...options,
+        maxSessions: options.maxSessions || boundedInteger(
+            "BTGA_RELAY_MAX_SESSIONS", 256, 1, 4096
+        ),
+        bytesPerSecond: options.bytesPerSecond || boundedInteger(
+            "BTGA_RELAY_PEER_BYTES_PER_SECOND", 128 * 1024, 1024, 1024 * 1024
+        ),
+        egressBytesPerSecond: options.egressBytesPerSecond || boundedInteger(
+            "BTGA_RELAY_EGRESS_BYTES_PER_SECOND", 160 * 1024, 1024, 1024 * 1024
+        )
+    });
     const socket = dgram.createSocket({ type: options.type || "udp6", ipv6Only: false });
     socket.on("message", (packet, remote) => {
         if (packet.length > MAX_DATAGRAM) {
@@ -34,4 +55,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { createRelayServer };
+module.exports = { boundedInteger, createRelayServer };

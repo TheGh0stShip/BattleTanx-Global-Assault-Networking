@@ -100,6 +100,27 @@ test("invalid and replayed admission tokens cannot redirect traffic", async () =
     assert.deepEqual(denied, []);
 });
 
+test("global egress bucket bounds authenticated relay traffic", async () => {
+    const auth = await credentials();
+    const core = new RelayCore(Buffer.from(SECRET), {
+        clock: () => NOW,
+        egressBytesPerSecond: 1
+    });
+    const host = remote(41500);
+    const client = remote(41501);
+    core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
+    ), host);
+    core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.clientToken)
+    ), client);
+    const gameplay = innerDatagram(auth.sessionId, 1);
+    assert.deepEqual(core.handle(
+        encodeEnvelope(TYPE_DATA, auth.sessionId, 1, 0, gameplay), client
+    ), []);
+    assert.equal(core.metrics.forwarded, 0);
+});
+
 test("a refreshed signed host token can replace a changed NAT mapping", async () => {
     const auth = await credentials();
     const core = new RelayCore(Buffer.from(SECRET), { clock: () => NOW });

@@ -15,6 +15,9 @@ const {
 const DEFAULT_IDLE_SECONDS = 90;
 const DEFAULT_MAX_SESSIONS = 256;
 const DEFAULT_BYTES_PER_SECOND = 128 * 1024;
+// This global ceiling bounds worst-case Azure egress independently of how many
+// authenticated sessions or broadcast recipients are active.
+const DEFAULT_EGRESS_BYTES_PER_SECOND = 160 * 1024;
 
 function endpointKey(remote) {
     return `${remote.family}|${remote.address}|${remote.port}`;
@@ -30,6 +33,10 @@ class RelayCore {
         this.idleSeconds = options.idleSeconds || DEFAULT_IDLE_SECONDS;
         this.maxSessions = options.maxSessions || DEFAULT_MAX_SESSIONS;
         this.bytesPerSecond = options.bytesPerSecond || DEFAULT_BYTES_PER_SECOND;
+        this.egressBytesPerSecond = options.egressBytesPerSecond ||
+            DEFAULT_EGRESS_BYTES_PER_SECOND;
+        this.egressTokens = this.egressBytesPerSecond;
+        this.egressTokenTime = this.clock();
         this.sessions = new Map();
         this.endpoints = new Map();
         this.nonces = new Map();
@@ -143,6 +150,18 @@ class RelayCore {
         return true;
     }
 
+    consumeEgress(amount, now) {
+        const elapsed = Math.max(0, now - this.egressTokenTime);
+        this.egressTokens = Math.min(
+            this.egressBytesPerSecond,
+            this.egressTokens + elapsed * this.egressBytesPerSecond
+        );
+        this.egressTokenTime = now;
+        if (amount > this.egressTokens) return false;
+        this.egressTokens -= amount;
+        return true;
+    }
+
     forward(envelope, remote, packetSize, now) {
         const binding = this.endpoints.get(endpointKey(remote));
         if (
@@ -178,14 +197,21 @@ class RelayCore {
             }
         }
         binding.peer.lastSeen = now;
-        this.metrics.forwarded += destinations.length;
-        return destinations.map((peer) => ({ remote: peer.remote, packet: encodeEnvelope(
-            TYPE_DATA,
-            envelope.sessionId,
-            binding.peer.slot,
-            peer.slot,
-            envelope.payload
-        ) }));
+        const output = [];
+        for (const peer of destinations) {
+            const packet = encodeEnvelope(
+                TYPE_DATA,
+                envelope.sessionId,
+                binding.peer.slot,
+                peer.slot,
+                envelope.payload
+            );
+            if (this.consumeEgress(packet.length, now)) {
+                output.push({ remote: peer.remote, packet });
+            }
+        }
+        this.metrics.forwarded += output.length;
+        return output;
     }
 
     handle(packet, remote) {

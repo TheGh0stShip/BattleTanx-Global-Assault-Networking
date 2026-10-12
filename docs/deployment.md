@@ -68,6 +68,13 @@ inbound rules. Clients and hosts both initiate outbound UDP to the relay. The
 example parameters file contains documentation placeholders only and must not
 be deployed unchanged.
 
+The same resource-group deployment creates a **$60 USD monthly Cost Management
+budget**, with actual-cost notifications at $30, $45 and $54 and a forecast
+notification at $48. Azure documents that budgets trigger notifications but do
+not stop resource consumption. The budget is therefore an early-warning layer,
+not the traffic cap; the relay's global 160 KiB/s egress bucket is the bounded
+data-plane control.
+
 Validate and preview the resources before the billing gate:
 
 ```sh
@@ -95,6 +102,10 @@ The installer prompts for the existing master secret with terminal echo
 disabled. It builds the relay image locally, stores the secret only in a
 root-readable `/etc/btga-relay.env`, and installs an auto-restarting systemd
 unit. The secret is not passed as a process argument or baked into the image.
+The production environment also enforces a global 160 KiB/s egress token
+bucket. At continuous saturation that is about 425 GB of relay payload per
+30-day month, before normal idle periods; it prevents session fan-out from
+turning the per-peer rate limits into unbounded Azure egress.
 Update the relay by checking out another reviewed commit and rerunning the
 installer. Inspect service health with:
 

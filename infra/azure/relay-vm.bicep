@@ -29,6 +29,13 @@ param relayPort int = 30420
 @description('Smallest practical production VM. Override only after reviewing recurring cost.')
 param vmSize string = 'Standard_B1ls'
 
+@description('Email address that receives resource-group cost alerts.')
+@secure()
+param budgetContactEmail string
+
+@description('Budget period start. Azure requires the first day of a month.')
+param budgetStartDate string = utcNow('yyyy-MM-01')
+
 var publicIpName = '${namePrefix}-ip'
 var nsgName = '${namePrefix}-nsg'
 var nicName = '${namePrefix}-nic'
@@ -187,7 +194,66 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   }
 }
 
+resource monthlyBudget 'Microsoft.Consumption/budgets@2023-11-01' = {
+  name: '${namePrefix}-monthly-60-usd'
+  properties: {
+    amount: 60
+    category: 'Cost'
+    timeGrain: 'Monthly'
+    timePeriod: {
+      startDate: budgetStartDate
+    }
+    notifications: {
+      Actual50: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 50
+        thresholdType: 'Actual'
+        contactEmails: [
+          budgetContactEmail
+        ]
+        contactGroups: []
+        contactRoles: []
+      }
+      Actual75: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 75
+        thresholdType: 'Actual'
+        contactEmails: [
+          budgetContactEmail
+        ]
+        contactGroups: []
+        contactRoles: []
+      }
+      Forecast80: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 80
+        thresholdType: 'Forecasted'
+        contactEmails: [
+          budgetContactEmail
+        ]
+        contactGroups: []
+        contactRoles: []
+      }
+      Actual90: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 90
+        thresholdType: 'Actual'
+        contactEmails: [
+          budgetContactEmail
+        ]
+        contactGroups: []
+        contactRoles: []
+      }
+    }
+  }
+}
+
 output relayHost string = publicIp.properties.dnsSettings.fqdn
 output relayIp string = publicIp.properties.ipAddress
 output relayPort int = relayPort
 output vmResourceId string = vm.id
+output monthlyBudgetUsd int = 60

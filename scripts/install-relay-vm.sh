@@ -52,6 +52,10 @@ umask 077
 environment_file=$(mktemp)
 printf 'BTGA_MASTER_SECRET=%s\nBTGA_RELAY_PORT=%s\n' \
     "$master_secret" "$relay_port" > "$environment_file"
+printf '%s\n' \
+    'BTGA_RELAY_MAX_SESSIONS=256' \
+    'BTGA_RELAY_PEER_BYTES_PER_SECOND=131072' \
+    'BTGA_RELAY_EGRESS_BYTES_PER_SECOND=163840' >> "$environment_file"
 master_secret=''
 install -o root -g root -m 600 "$environment_file" /etc/btga-relay.env
 rm -f "$environment_file"
