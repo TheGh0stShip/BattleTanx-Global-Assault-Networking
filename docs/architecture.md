@@ -92,6 +92,15 @@ authenticate the packet's peer-to-player assignment rather than trusting the
 payload's player ID. World snapshots remain game-specific and are not defined
 until the recovered game-state ownership boundary is audited.
 
+`BtgaNetFrameSync` is the portable simulation-boundary marker carried in an
+`EVENT` message. Its fixed 12-byte payload contains a version/type prefix, a
+big-endian 32-bit frame number, and a big-endian 32-bit state checksum. Ports
+may initially set the checksum to a documented sentinel while recovering a
+canonical game-state digest. The frame marker supports a strict common start
+and a bounded lead window without serializing pointers, host time, or native
+state. It is not itself rollback: ports retain input history and snapshots
+needed to resimulate after a late correction.
+
 ## Synchronized lobby and player selection
 
 The portable `BtgaLobbyState` owns the pre-match authority. Its initial v1

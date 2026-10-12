@@ -47,5 +47,28 @@ int main(void) {
     CHECK(btga_net_encode_input_batch(payload, sizeof(payload), &source) == 0U);
     source.frame_count = BTGA_NET_MAX_INPUT_FRAMES + 1U;
     CHECK(btga_net_encode_input_batch(payload, sizeof(payload), &source) == 0U);
+
+    {
+        static const uint8_t expected_sync[] = {
+            0x01, 0x01, 0x00, 0x00, 0xFE, 0xDC, 0xBA, 0x98,
+            0x12, 0x34, 0x56, 0x78
+        };
+        const BtgaNetFrameSync frame = {
+            UINT32_C(0xFEDCBA98), UINT32_C(0x12345678)
+        };
+        BtgaNetFrameSync decoded_frame = {0};
+        encoded_size = btga_net_encode_frame_sync(payload, sizeof(payload), &frame);
+        CHECK(encoded_size == sizeof(expected_sync));
+        CHECK(memcmp(payload, expected_sync, sizeof(expected_sync)) == 0);
+        CHECK(btga_net_decode_frame_sync(&decoded_frame, payload, encoded_size));
+        CHECK(decoded_frame.frame == frame.frame);
+        CHECK(decoded_frame.state_checksum == frame.state_checksum);
+        CHECK(!btga_net_decode_frame_sync(&decoded_frame, payload, encoded_size - 1U));
+        payload[2] = 1U;
+        CHECK(!btga_net_decode_frame_sync(&decoded_frame, payload, encoded_size));
+        payload[2] = 0U;
+        CHECK(btga_net_encode_frame_sync(payload, BTGA_NET_FRAME_SYNC_SIZE - 1U,
+                                         &frame) == 0U);
+    }
     return 0;
 }

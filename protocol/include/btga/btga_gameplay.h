@@ -11,6 +11,9 @@ extern "C" {
 #define BTGA_NET_MAX_INPUT_FRAMES 32U
 #define BTGA_NET_INPUT_HEADER_SIZE 8U
 #define BTGA_NET_INPUT_FRAME_SIZE 4U
+#define BTGA_NET_FRAME_SYNC_VERSION 1U
+#define BTGA_NET_FRAME_SYNC_TYPE 1U
+#define BTGA_NET_FRAME_SYNC_SIZE 12U
 
 typedef struct BtgaNetInputFrame {
     uint16_t buttons;
@@ -25,12 +28,24 @@ typedef struct BtgaNetInputBatch {
     BtgaNetInputFrame frames[BTGA_NET_MAX_INPUT_FRAMES];
 } BtgaNetInputBatch;
 
+/* Portable simulation-boundary marker carried in BTGA_NET_MSG_EVENT. */
+typedef struct BtgaNetFrameSync {
+    uint32_t frame;
+    uint32_t state_checksum;
+} BtgaNetFrameSync;
+
 size_t btga_net_encode_input_batch(uint8_t* destination,
                                    size_t destination_size,
                                    const BtgaNetInputBatch* batch);
 int btga_net_decode_input_batch(BtgaNetInputBatch* batch,
                                 const uint8_t* payload,
                                 size_t payload_size);
+size_t btga_net_encode_frame_sync(uint8_t* destination,
+                                  size_t destination_size,
+                                  const BtgaNetFrameSync* sync);
+int btga_net_decode_frame_sync(BtgaNetFrameSync* sync,
+                               const uint8_t* payload,
+                               size_t payload_size);
 
 #ifdef __cplusplus
 }

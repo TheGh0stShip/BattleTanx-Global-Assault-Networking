@@ -22,6 +22,7 @@ or individual game port.
 - Allocation-free client/host admission state machines
 - Fixed-capacity reliable-send tracking with ACK release and retry expiry
 - Endian-stable batches of original N64 controller input by simulation tick
+- Endian-stable simulation-frame markers with a portable state-checksum field
 - Sixteen protocol peer slots reserved
 - Host-authoritative topology selected
 - Authenticated public UDP relay is the default gameplay path

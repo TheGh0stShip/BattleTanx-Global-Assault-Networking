@@ -74,3 +74,30 @@ int btga_net_decode_input_batch(BtgaNetInputBatch* batch,
     }
     return 1;
 }
+
+size_t btga_net_encode_frame_sync(uint8_t* destination,
+                                  size_t destination_size,
+                                  const BtgaNetFrameSync* sync) {
+    if (destination == NULL || sync == NULL ||
+        destination_size < BTGA_NET_FRAME_SYNC_SIZE) return 0U;
+    destination[0] = BTGA_NET_FRAME_SYNC_VERSION;
+    destination[1] = BTGA_NET_FRAME_SYNC_TYPE;
+    destination[2] = 0U;
+    destination[3] = 0U;
+    put_u32(destination + 4, sync->frame);
+    put_u32(destination + 8, sync->state_checksum);
+    return BTGA_NET_FRAME_SYNC_SIZE;
+}
+
+int btga_net_decode_frame_sync(BtgaNetFrameSync* sync,
+                               const uint8_t* payload,
+                               size_t payload_size) {
+    if (sync == NULL || payload == NULL ||
+        payload_size != BTGA_NET_FRAME_SYNC_SIZE ||
+        payload[0] != BTGA_NET_FRAME_SYNC_VERSION ||
+        payload[1] != BTGA_NET_FRAME_SYNC_TYPE ||
+        payload[2] != 0U || payload[3] != 0U) return 0;
+    sync->frame = get_u32(payload + 4);
+    sync->state_checksum = get_u32(payload + 8);
+    return 1;
+}
