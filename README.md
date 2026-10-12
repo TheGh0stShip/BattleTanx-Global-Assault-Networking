@@ -1,5 +1,7 @@
 # BattleTanx: Global Assault Networking
 
+[![CI](https://github.com/TheGh0stShip/BattleTanx-Global-Assault-Networking/actions/workflows/ci.yml/badge.svg)](https://github.com/TheGh0stShip/BattleTanx-Global-Assault-Networking/actions/workflows/ci.yml)
+
 The canonical cross-platform multiplayer protocol and online-service project
 for community ports of *BattleTanx: Global Assault*.
 
@@ -11,11 +13,16 @@ or individual game port.
 
 - Portable C99 packet-header codec
 - Fixed big-endian wire format with golden compatibility vectors
+- Wrap-safe sequence/acknowledgement window with duplicate suppression
 - Sixteen protocol peer slots reserved
 - Host-authoritative topology selected
 - Direct UDP is the first gameplay path
 - Azure lobby/discovery core and Node 22 Functions adapter
 - Paid UDP relay is deliberately deferred until direct gameplay works
+
+The production discovery API is available at
+[`https://btga.thegh0stship.com/api/v1`](https://btga.thegh0stship.com/api/v1/health).
+It is a scale-to-zero control plane; it does not relay gameplay traffic.
 
 The retail simulation remains four-player until every fixed-size gameplay,
 camera, HUD, spawn and scoring structure is audited. A 16-slot packet format is
