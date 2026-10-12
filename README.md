@@ -103,6 +103,5 @@ cannot address other clients, and only the authenticated host can broadcast.
 ## License
 
 The common protocol and service code are licensed under the GNU General Public
-License version 2 or (at your option) any later version. This permits both
-GPLv2 platform ports and combination with the GPLv3 PC port. See
+License version 3 only (`GPL-3.0-only`), matching the definitive PC port. See
 [LICENSE-NOTICE.md](LICENSE-NOTICE.md) and [COPYING](COPYING).
