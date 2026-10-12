@@ -12,6 +12,8 @@ cannot accept public UDP.
   lobby table.
 - `BTGA_MASTER_SECRET`: at least 32 random bytes; rotate through Azure settings
   and never place it in source control or command output.
+- `BTGA_RELAY_PRIVATE_KEY`: Base64 PKCS#8 Ed25519 private key used only by the
+  master to sign short-lived relay admission tokens.
 - `BTGA_LOBBY_TABLE`: optional table name; defaults to `BtgaLobbies`.
 - `BTGA_RELAY_HOST`: public DNS name of the separately deployed UDP relay.
 - `BTGA_RELAY_PORT`: public relay UDP port; defaults to `30420`.
@@ -43,10 +45,11 @@ route and `scripts/test-master-api.sh`.
 
 ## UDP relay deployment boundary
 
-`server/relay/Dockerfile` builds the dependency-free Node.js relay. It requires
-the same `BTGA_MASTER_SECRET` as the master so it can validate signed admission
-tokens locally, without an HTTPS request for every datagram. Expose UDP 30420,
-not TCP 30420. Never place the secret in an image layer or deployment manifest.
+`server/relay/Dockerfile` builds the dependency-free Node.js relay. It receives
+only `BTGA_RELAY_PUBLIC_KEY`, the Base64 SPKI Ed25519 public key needed to
+validate admission tokens locally. The private signing key and
+`BTGA_MASTER_SECRET` never enter the Internet-facing VM. Expose UDP 30420, not
+TCP 30420.
 
 Azure Container Instances can expose UDP, but it has a continuously billed
 minimum allocation and its public address is not durable after deletion. A
@@ -56,17 +59,18 @@ until its monthly compute, static-IP and egress ceiling are reviewed. The relay
 does not scale to zero while preserving a stable UDP endpoint.
 
 `infra/azure/relay-vm.bicep` defines the production relay boundary without
-deploying the application or carrying its shared secret. It creates one small
+deploying the application or carrying private key material. It creates one small
 Ubuntu VM, a 32 GiB Standard SSD, a static Standard IPv4 address, and an NSG
-with exactly two inbound exceptions:
+with exactly one inbound exception:
 
 - UDP `30420` from the Internet for authenticated relay datagrams;
-- TCP `22` only from the explicitly supplied operator CIDR.
 
-There are no TCP gameplay listeners, UPnP/NAT-PMP components, or player-facing
-inbound rules. Clients and hosts both initiate outbound UDP to the relay. The
-example parameters file contains documentation placeholders only and must not
-be deployed unchanged.
+There is no public TCP or SSH ingress, no TCP gameplay listener, no
+UPnP/NAT-PMP component, and no player-facing inbound rule. Clients and hosts
+both initiate outbound UDP to the relay. Maintenance uses Azure Run Command or
+the serial console through Azure's authenticated management plane. The example
+parameters file contains documentation placeholders only and must not be
+deployed unchanged.
 
 The same resource-group deployment creates a **$60 USD monthly Cost Management
 budget**, with actual-cost notifications at $30, $45 and $54 and a forecast
@@ -87,21 +91,26 @@ az deployment group what-if \
 
 Keep the local parameters file and all private keys untracked. Creating the VM,
 disk and public address starts recurring billing, so `what-if` is not authority
-to deploy. The relay container and `BTGA_MASTER_SECRET` are installed only
-after explicit deployment approval; the secret must never appear in a Bicep
-file, command log, container layer or GitHub artifact.
+to deploy. The relay container is installed only after explicit deployment
+approval. Private signing and host-authentication material must never appear in
+a Bicep file, command log, container layer or GitHub artifact.
 
-After deployment approval and VM creation, clone this repository at the exact
-reviewed commit on the VM and run the installer interactively:
+After deployment approval and VM creation, use Azure Run Command to clone this
+repository at the exact reviewed commit and run the installer. Do not open SSH
+to perform routine maintenance. For a supervised console session, the final
+command is:
 
 ```sh
 sudo scripts/install-relay-vm.sh
 ```
 
-The installer prompts for the existing master secret with terminal echo
-disabled. It builds the relay image locally, stores the secret only in a
-root-readable `/etc/btga-relay.env`, and installs an auto-restarting systemd
-unit. The secret is not passed as a process argument or baked into the image.
+The installer prompts for the public relay verification key. It builds the
+relay image locally, writes the public configuration to
+`/etc/btga-relay.env`, and installs an auto-restarting systemd unit. No master
+secret or private signing key is present on the relay VM. It disables the SSH
+daemon, enables automatic security updates, and runs the container read-only,
+without Linux capabilities or privilege escalation, with CPU, memory, process,
+temporary-filesystem and log bounds.
 The production environment also enforces a global 160 KiB/s egress token
 bucket. At continuous saturation that is about 425 GB of relay payload per
 30-day month, before normal idle periods; it prevents session fan-out from
@@ -116,6 +125,9 @@ sudo ss -lun | grep ':30420'
 ```
 
 ## Cost and safety controls
+
+The complete control inventory and incident-response actions are in
+[SECURITY_CONTROLS.md](SECURITY_CONTROLS.md).
 
 - Keep `alwaysReady` empty and cap maximum scale-out conservatively.
 - Keep the Log Analytics daily ingestion cap and retention limit explicit.

@@ -81,22 +81,28 @@ function constantTimeEqual(left, right) {
 }
 
 class MasterService {
-    constructor(store, secretKey, clock = () => Date.now() / 1000, relayEndpoint = null) {
+    constructor(store, secretKey, clock = () => Date.now() / 1000,
+                relayEndpoint = null, relayPrivateKey) {
         this.store = store;
         this.secretKey = Buffer.from(secretKey);
         this.clock = clock;
         this.relayEndpoint = relayEndpoint;
+        this.relayPrivateKey = relayPrivateKey;
         if (this.secretKey.length < 32) {
             throw new Error("secretKey must contain at least 32 bytes");
         }
+        if (!this.relayPrivateKey || this.relayPrivateKey.type !== "private" ||
+            this.relayPrivateKey.asymmetricKeyType !== "ed25519") {
+            throw new Error("relayPrivateKey must be an Ed25519 private key");
+        }
+        this.relayPublicKey = crypto.createPublicKey(this.relayPrivateKey);
     }
 
     issueAdmissionToken(payload) {
         const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
-        const signature = crypto
-            .createHmac("sha256", this.secretKey)
-            .update(encoded)
-            .digest("base64url");
+        const signature = crypto.sign(
+            null, Buffer.from(encoded, "ascii"), this.relayPrivateKey
+        ).toString("base64url");
         return `${encoded}.${signature}`;
     }
 
@@ -284,11 +290,10 @@ class MasterService {
                 throw new Error("invalid token parts");
             }
             const [encoded, suppliedSignature] = parts;
-            const expected = crypto
-                .createHmac("sha256", this.secretKey)
-                .update(encoded)
-                .digest("base64url");
-            if (!constantTimeEqual(expected, suppliedSignature)) {
+            const signature = Buffer.from(suppliedSignature, "base64url");
+            if (signature.length !== 64 || !crypto.verify(
+                null, Buffer.from(encoded, "ascii"), this.relayPublicKey, signature
+            )) {
                 throw new Error("invalid token signature");
             }
             const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));

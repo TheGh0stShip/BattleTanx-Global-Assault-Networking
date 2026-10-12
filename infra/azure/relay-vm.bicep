@@ -11,15 +11,12 @@ param namePrefix string = 'btga-relay'
 @maxLength(63)
 param dnsLabelPrefix string
 
-@description('Linux administrator account used only for maintenance.')
+@description('Linux administrator account retained for Azure serial-console recovery; SSH ingress is not exposed.')
 param adminUsername string = 'btgaadmin'
 
 @description('OpenSSH public key for the administrator account.')
 @secure()
 param adminSshPublicKey string
-
-@description('Single operator address or trusted network allowed to SSH, such as 203.0.113.4/32.')
-param adminSourceCidr string
 
 @description('Relay UDP port. Clients make outbound connections to this port; no client port forwarding is used.')
 @minValue(1024)
@@ -72,19 +69,6 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
           sourcePortRange: '*'
           destinationPortRange: string(relayPort)
           sourceAddressPrefix: 'Internet'
-          destinationAddressPrefix: '*'
-        }
-      }
-      {
-        name: 'AllowOperatorSsh'
-        properties: {
-          priority: 110
-          access: 'Allow'
-          direction: 'Inbound'
-          protocol: 'Tcp'
-          sourcePortRange: '*'
-          destinationPortRange: '22'
-          sourceAddressPrefix: adminSourceCidr
           destinationAddressPrefix: '*'
         }
       }

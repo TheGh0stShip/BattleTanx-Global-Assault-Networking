@@ -1,12 +1,17 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const test = require("node:test");
 const { handle, normalizeForwardedAddress, observedIp } = require("../src/app");
 const { MasterService, MemoryLobbyStore } = require("../src/core");
 
 function setup() {
-    const service = new MasterService(new MemoryLobbyStore(), Buffer.alloc(32, "s"), () => 1_800_000_000);
+    const { privateKey } = crypto.generateKeyPairSync("ed25519");
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.alloc(32, "s"),
+        () => 1_800_000_000, null, privateKey
+    );
     return { service, factory: async () => service };
 }
 

@@ -1,13 +1,17 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const test = require("node:test");
 const { MasterError, MasterService, MemoryLobbyStore } = require("../src/core");
 
 function fixture() {
     const state = { now: 1_800_000_000 };
     const store = new MemoryLobbyStore();
-    const service = new MasterService(store, Buffer.alloc(32, "t"), () => state.now);
+    const { privateKey: relayPrivateKey } = crypto.generateKeyPairSync("ed25519");
+    const service = new MasterService(
+        store, Buffer.alloc(32, "t"), () => state.now, null, relayPrivateKey
+    );
     const registration = {
         name: "Desert Duel",
         protocol: 1,
@@ -19,7 +23,7 @@ function fixture() {
         current_players: 1,
         udp_port: 30420
     };
-    return { state, store, service, registration };
+    return { state, store, service, registration, relayPrivateKey };
 }
 
 test("lobby lifecycle exposes only public fields", async () => {
@@ -70,9 +74,11 @@ test("join tokens are bound to a lobby and expire", async () => {
 });
 
 test("relay-only hosts need no public UDP port", async () => {
-    const { store, state, registration } = fixture();
+    const { store, state, registration, relayPrivateKey } = fixture();
     const relay = { address: "relay.example", udp_port: 30420 };
-    const service = new MasterService(store, Buffer.alloc(32, "t"), () => state.now, relay);
+    const service = new MasterService(
+        store, Buffer.alloc(32, "t"), () => state.now, relay, relayPrivateKey
+    );
     const withoutPort = { ...registration };
     delete withoutPort.udp_port;
     const result = await service.register(withoutPort, "203.0.113.7");

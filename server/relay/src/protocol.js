@@ -61,13 +61,7 @@ function sessionIdFromText(text) {
     return BigInt(`0x${text}`);
 }
 
-function constantTimeEqual(left, right) {
-    const a = Buffer.from(left, "utf8");
-    const b = Buffer.from(right, "utf8");
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-function verifyAdmissionToken(token, secretKey, nowSeconds) {
+function verifyAdmissionToken(token, publicKey, nowSeconds) {
     if (
         typeof token !== "string" || token.length < 3 || token.length > MAX_TOKEN ||
         !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(token)
@@ -75,8 +69,10 @@ function verifyAdmissionToken(token, secretKey, nowSeconds) {
         throw new Error("invalid token syntax");
     }
     const [encoded, suppliedSignature] = token.split(".");
-    const expected = crypto.createHmac("sha256", secretKey).update(encoded).digest("base64url");
-    if (!constantTimeEqual(expected, suppliedSignature)) {
+    const signature = Buffer.from(suppliedSignature, "base64url");
+    if (signature.length !== 64 || !crypto.verify(
+        null, Buffer.from(encoded, "ascii"), publicKey, signature
+    )) {
         throw new Error("invalid token signature");
     }
     const claims = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));

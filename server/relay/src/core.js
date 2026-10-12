@@ -24,10 +24,11 @@ function endpointKey(remote) {
 }
 
 class RelayCore {
-    constructor(secretKey, options = {}) {
-        this.secretKey = Buffer.from(secretKey);
-        if (this.secretKey.length < 32) {
-            throw new Error("secretKey must contain at least 32 bytes");
+    constructor(publicKey, options = {}) {
+        this.publicKey = publicKey;
+        if (!this.publicKey || this.publicKey.type !== "public" ||
+            this.publicKey.asymmetricKeyType !== "ed25519") {
+            throw new Error("publicKey must be an Ed25519 public key");
         }
         this.clock = options.clock || (() => Date.now() / 1000);
         this.idleSeconds = options.idleSeconds || DEFAULT_IDLE_SECONDS;
@@ -71,7 +72,9 @@ class RelayCore {
     bind(envelope, remote, now) {
         let claims;
         try {
-            claims = verifyAdmissionToken(envelope.payload.toString("ascii"), this.secretKey, Math.floor(now));
+            claims = verifyAdmissionToken(
+                envelope.payload.toString("ascii"), this.publicKey, Math.floor(now)
+            );
         } catch {
             /* Never answer unauthenticated traffic: no reflection oracle. */
             return [];

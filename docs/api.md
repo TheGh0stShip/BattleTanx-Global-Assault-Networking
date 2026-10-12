@@ -50,7 +50,7 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
 
 `POST /lobbies/{id}/join` accepts `protocol`, `build`, and `platform`. It
 returns the configured public `relay` endpoint, the same 16-character
-hexadecimal `session_id`, and an HMAC-authenticated join token that expires
+hexadecimal `session_id`, and an Ed25519-signed join token that expires
 after 30 seconds. A legacy direct `host` endpoint is returned only when the host
 explicitly advertised one; it is not required for relay play. The token is
 opaque to clients and also admits one outbound UDP mapping at the relay.

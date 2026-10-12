@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const dgram = require("node:dgram");
 const test = require("node:test");
 const { MasterService, MemoryLobbyStore } = require("../../master/src/core");
@@ -30,9 +31,10 @@ function innerDatagram(sessionId, peerId = 0) {
 }
 
 async function credentials() {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
     const service = new MasterService(
         new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW,
-        { address: "relay.example", udp_port: 30420 }
+        { address: "relay.example", udp_port: 30420 }, privateKey
     );
     const registration = await service.register({
         name: "Relay test", protocol: 1, build: "test", platform: "pc",
@@ -45,13 +47,15 @@ async function credentials() {
     return {
         sessionId: BigInt(`0x${registration.session_id}`),
         hostToken: registration.relay_token,
-        clientToken: joined.join_token
+        clientToken: joined.join_token,
+        privateKey,
+        publicKey
     };
 }
 
 test("relay binds signed peers and enforces host topology", async () => {
     const auth = await credentials();
-    const core = new RelayCore(Buffer.from(SECRET), { clock: () => NOW });
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
     const host = remote(40000);
     const client = remote(40001);
     const stranger = remote(40002);
@@ -84,7 +88,7 @@ test("relay binds signed peers and enforces host topology", async () => {
 
 test("invalid and replayed admission tokens cannot redirect traffic", async () => {
     const auth = await credentials();
-    const core = new RelayCore(Buffer.from(SECRET), { clock: () => NOW });
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
     core.handle(encodeEnvelope(
         TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
     ), remote(41000));
@@ -102,7 +106,7 @@ test("invalid and replayed admission tokens cannot redirect traffic", async () =
 
 test("global egress bucket bounds authenticated relay traffic", async () => {
     const auth = await credentials();
-    const core = new RelayCore(Buffer.from(SECRET), {
+    const core = new RelayCore(auth.publicKey, {
         clock: () => NOW,
         egressBytesPerSecond: 1
     });
@@ -123,12 +127,13 @@ test("global egress bucket bounds authenticated relay traffic", async () => {
 
 test("a refreshed signed host token can replace a changed NAT mapping", async () => {
     const auth = await credentials();
-    const core = new RelayCore(Buffer.from(SECRET), { clock: () => NOW });
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
     core.handle(encodeEnvelope(
         TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
     ), remote(42000));
     const service = new MasterService(
-        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null,
+        auth.privateKey
     );
     const replacementToken = service.issueAdmissionToken({
         session: auth.sessionId.toString(16).padStart(16, "0"),
@@ -165,7 +170,9 @@ function send(socket, packet, relayPort) {
 
 test("two real UDP sockets exchange a gameplay datagram through the relay", async (t) => {
     const auth = await credentials();
-    const relay = createRelayServer({ secret: SECRET, type: "udp4", clock: () => NOW });
+    const relay = createRelayServer({
+        publicKey: auth.publicKey, type: "udp4", clock: () => NOW
+    });
     const host = dgram.createSocket("udp4");
     const client = dgram.createSocket("udp4");
     t.after(() => relay.socket.close());

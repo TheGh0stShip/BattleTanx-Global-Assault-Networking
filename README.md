@@ -63,7 +63,9 @@ installed package on Linux and Windows.
 
 See [architecture.md](docs/architecture.md) for the topology and platform
 contract, [api.md](docs/api.md) for the master-service contract, and
-[deployment.md](docs/deployment.md) for the reproducible Azure workflow.
+[deployment.md](docs/deployment.md) for the reproducible Azure workflow. The
+fail-closed security, privacy, cost, and operational controls are listed in
+[SECURITY_CONTROLS.md](docs/SECURITY_CONTROLS.md).
 
 The master service core is tested independently from Azure. Node.js 22 is the
 deployment runtime:
@@ -84,7 +86,7 @@ The relay has no npm dependencies and can be exercised locally without Azure:
 ```sh
 cd server/relay
 npm test
-BTGA_MASTER_SECRET='at-least-32-random-bytes' npm start
+BTGA_RELAY_PUBLIC_KEY='base64-spki-ed25519-public-key' npm start
 ```
 
 Its end-to-end test opens a relay plus two independent UDP sockets, binds them

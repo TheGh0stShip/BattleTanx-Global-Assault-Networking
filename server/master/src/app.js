@@ -10,9 +10,15 @@ async function productionService() {
     if (servicePromise === undefined) {
         const connection = process.env.AzureWebJobsStorage;
         const secret = process.env.BTGA_MASTER_SECRET;
-        if (!connection || !secret) {
+        const relayPrivateKeyText = process.env.BTGA_RELAY_PRIVATE_KEY;
+        if (!connection || !secret || !relayPrivateKeyText) {
             throw new Error("required master-service settings are missing");
         }
+        const relayPrivateKey = require("node:crypto").createPrivateKey({
+            key: Buffer.from(relayPrivateKeyText, "base64"),
+            format: "der",
+            type: "pkcs8"
+        });
         const relayHost = process.env.BTGA_RELAY_HOST;
         const relayPort = Number(process.env.BTGA_RELAY_PORT || 30420);
         const relayEndpoint = relayHost && Number.isInteger(relayPort) && relayPort >= 1 && relayPort <= 65535
@@ -24,7 +30,8 @@ async function productionService() {
                 store,
                 Buffer.from(secret, "utf8"),
                 undefined,
-                relayEndpoint
+                relayEndpoint,
+                relayPrivateKey
             ));
     }
     return servicePromise;

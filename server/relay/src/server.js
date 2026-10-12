@@ -1,6 +1,7 @@
 "use strict";
 
 const dgram = require("node:dgram");
+const crypto = require("node:crypto");
 const { RelayCore } = require("./core");
 const { MAX_DATAGRAM } = require("./protocol");
 
@@ -15,11 +16,17 @@ function boundedInteger(name, fallback, minimum, maximum) {
 }
 
 function createRelayServer(options = {}) {
-    const secret = options.secret || process.env.BTGA_MASTER_SECRET;
-    if (!secret || Buffer.byteLength(secret) < 32) {
-        throw new Error("BTGA_MASTER_SECRET must contain at least 32 bytes");
+    const publicKeyText = options.publicKeyText || process.env.BTGA_RELAY_PUBLIC_KEY;
+    const publicKey = options.publicKey || (publicKeyText && crypto.createPublicKey({
+        key: Buffer.from(publicKeyText, "base64"),
+        format: "der",
+        type: "spki"
+    }));
+    if (!publicKey || publicKey.type !== "public" ||
+        publicKey.asymmetricKeyType !== "ed25519") {
+        throw new Error("BTGA_RELAY_PUBLIC_KEY must contain an Ed25519 SPKI key");
     }
-    const core = new RelayCore(Buffer.from(secret), {
+    const core = new RelayCore(publicKey, {
         ...options,
         maxSessions: options.maxSessions || boundedInteger(
             "BTGA_RELAY_MAX_SESSIONS", 256, 1, 4096
