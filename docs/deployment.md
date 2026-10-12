@@ -98,8 +98,9 @@ a Bicep file, command log, container layer or GitHub artifact.
 After deployment approval and VM creation, use Azure Run Command to clone this
 repository at the exact reviewed commit and run the installer. Do not open SSH
 to perform routine maintenance. `scripts/provision-relay-azure-vm.sh` is the
-idempotent Run Command entry point; pass the public Ed25519 key and the exact
-reviewed commit as its two arguments. It refuses ambiguous revisions and
+idempotent Run Command entry point; supply the public Ed25519 key and exact
+reviewed commit as named `RELAY_PUBLIC_KEY` and `REVIEWED_COMMIT` Run Command
+parameters (or as two positional arguments at a console). It refuses ambiguous revisions and
 verifies the checked-out commit before installation. For a supervised console
 session where the reviewed tree is already checked out, the final command is:
 

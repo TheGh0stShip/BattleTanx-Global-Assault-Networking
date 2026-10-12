@@ -5,13 +5,17 @@ if [ "$(id -u)" -ne 0 ]; then
     echo "Run this provisioner as root through Azure Run Command." >&2
     exit 1
 fi
-if [ "$#" -ne 2 ]; then
+if [ "$#" -eq 2 ]; then
+    relay_public_key=$1
+    reviewed_commit=$2
+elif [ "$#" -eq 0 ] && [ -n "${RELAY_PUBLIC_KEY:-}" ] && [ -n "${REVIEWED_COMMIT:-}" ]; then
+    relay_public_key=$RELAY_PUBLIC_KEY
+    reviewed_commit=$REVIEWED_COMMIT
+else
     echo "usage: $0 RELAY_PUBLIC_KEY REVIEWED_COMMIT" >&2
+    echo "or set RELAY_PUBLIC_KEY and REVIEWED_COMMIT for Azure Run Command" >&2
     exit 2
 fi
-
-relay_public_key=$1
-reviewed_commit=$2
 case "$reviewed_commit" in
     ''|*[!0-9a-f]*) echo "REVIEWED_COMMIT must be a hexadecimal Git commit." >&2; exit 1 ;;
 esac
