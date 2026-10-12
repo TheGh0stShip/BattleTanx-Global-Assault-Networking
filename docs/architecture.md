@@ -42,6 +42,13 @@ initial UDP path; v1 protects against off-path spoofing, not an on-path network
 attacker. Gameplay encryption is a future protocol revision, not an implied
 property of this handshake.
 
+Join-token bytes accepted by the wire codec are restricted to the master's
+two non-empty base64url components separated by one `.`. This rejects control
+characters and malformed bearer material before a platform JSON/HTTPS adapter
+handles it. A host must also remember validated token nonces for the session
+and reject reuse; master validation is intentionally stateless within the
+30-second token lifetime.
+
 ## Reliable delivery boundary
 
 `BtgaNetSendQueue` tracks at most 32 outstanding reliable sequences, matching

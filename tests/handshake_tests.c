@@ -19,7 +19,7 @@ static void fill_nonce(uint8_t* nonce, uint8_t first) {
 }
 
 static int test_hello(void) {
-    static const uint8_t token[] = "opaque.master.token";
+    static const uint8_t token[] = "opaque_master.token";
     BtgaNetHello source;
     BtgaNetHello decoded;
     uint8_t payload[BTGA_NET_MAX_PAYLOAD_SIZE];
@@ -49,7 +49,16 @@ static int test_hello(void) {
     CHECK(!btga_net_decode_hello(&decoded, payload, size));
     payload[0] = BTGA_NET_HANDSHAKE_VERSION;
     CHECK(!btga_net_decode_hello(&decoded, payload, size - 1U));
+    payload[2] = 0xFFU;
+    payload[3] = 0xFFU;
+    CHECK(!btga_net_decode_hello(&decoded, payload, BTGA_NET_HELLO_FIXED_SIZE));
     source.join_token_size = BTGA_NET_MAX_JOIN_TOKEN_SIZE + 1U;
+    CHECK(btga_net_encode_hello(payload, sizeof(payload), &source) == 0U);
+    source.join_token = (const uint8_t*)"missing_separator";
+    source.join_token_size = 17U;
+    CHECK(btga_net_encode_hello(payload, sizeof(payload), &source) == 0U);
+    source.join_token = (const uint8_t*)"bad.token!";
+    source.join_token_size = 10U;
     CHECK(btga_net_encode_hello(payload, sizeof(payload), &source) == 0U);
     return 0;
 }

@@ -28,13 +28,32 @@ static int valid_platform(uint8_t platform) {
            platform <= BTGA_NET_PLATFORM_NINTENDO_3DS;
 }
 
+static int valid_join_token(const uint8_t* token, uint16_t token_size) {
+    uint16_t index;
+    uint16_t separator = UINT16_MAX;
+    if (token == NULL || token_size < 3U ||
+        token_size > BTGA_NET_MAX_JOIN_TOKEN_SIZE) return 0;
+    for (index = 0U; index < token_size; ++index) {
+        const uint8_t character = token[index];
+        const int base64url = (character >= (uint8_t)'A' && character <= (uint8_t)'Z') ||
+                              (character >= (uint8_t)'a' && character <= (uint8_t)'z') ||
+                              (character >= (uint8_t)'0' && character <= (uint8_t)'9') ||
+                              character == (uint8_t)'-' || character == (uint8_t)'_';
+        if (character == (uint8_t)'.') {
+            if (separator != UINT16_MAX) return 0;
+            separator = index;
+        } else if (!base64url) return 0;
+    }
+    return separator != UINT16_MAX && separator != 0U &&
+           separator != token_size - 1U;
+}
+
 size_t btga_net_encode_hello(uint8_t* destination, size_t destination_size,
                              const BtgaNetHello* hello) {
     size_t encoded_size;
 
     if (destination == NULL || hello == NULL || !valid_platform(hello->platform) ||
-        hello->join_token == NULL || hello->join_token_size == 0U ||
-        hello->join_token_size > BTGA_NET_MAX_JOIN_TOKEN_SIZE) {
+        !valid_join_token(hello->join_token, hello->join_token_size)) {
         return 0U;
     }
     encoded_size = BTGA_NET_HELLO_FIXED_SIZE + (size_t)hello->join_token_size;
@@ -61,7 +80,8 @@ int btga_net_decode_hello(BtgaNetHello* hello, const uint8_t* payload,
     }
     token_size = get_u16(payload + 2);
     if (token_size == 0U || token_size > BTGA_NET_MAX_JOIN_TOKEN_SIZE ||
-        payload_size != BTGA_NET_HELLO_FIXED_SIZE + (size_t)token_size) {
+        payload_size != BTGA_NET_HELLO_FIXED_SIZE + (size_t)token_size ||
+        !valid_join_token(payload + BTGA_NET_HELLO_FIXED_SIZE, token_size)) {
         return 0;
     }
     hello->platform = payload[1];
