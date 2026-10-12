@@ -33,6 +33,14 @@ broadcast. The relay verifies the inner protocol version, session ID, length and
 `BTGA_NET_FLAG_RELAYED` flag before forwarding it unchanged. Invalid admission
 tokens receive no response, preventing an unauthenticated reflection oracle.
 
+`BtgaRelayClient` is the portable port-side boundary. Initialization leaves it
+in `BTGA_RELAY_CLIENT_OFFLINE` and cannot emit a packet. Only an explicit
+`btga_relay_client_begin` transition—called after the player enters Online
+Multiplayer—copies an admission token and enables a `BIND` datagram. A valid
+`BOUND` reply erases that token from the structure. Disconnect resets the whole
+state to offline. Consequently there is no persistent “network enabled” setting
+and ordinary game startup cannot accidentally perform DNS or network I/O.
+
 After HTTPS join and relay binding, the client and host use four bounded payloads:
 
 1. `HELLO` carries the opaque short-lived join token, platform capabilities,

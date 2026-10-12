@@ -16,6 +16,7 @@ or individual game port.
 - Wrap-safe sequence/acknowledgement window with duplicate suppression
 - Socket-free endpoint codec with per-peer replay filtering and session checks
 - Allocation-free UDP admission and relay-envelope codecs
+- Allocation-free relay client state machine that starts explicitly offline
 - Allocation-free client/host admission state machines
 - Fixed-capacity reliable-send tracking with ACK release and retry expiry
 - Endian-stable batches of original N64 controller input by simulation tick

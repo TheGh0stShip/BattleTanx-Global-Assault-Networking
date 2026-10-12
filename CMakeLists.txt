@@ -12,6 +12,7 @@ add_library(btga_net_protocol STATIC
     protocol/src/btga_handshake.c
     protocol/src/btga_net.c
     protocol/src/btga_relay.c
+    protocol/src/btga_relay_client.c
     protocol/src/btga_reliability.c
     protocol/src/btga_session.c
     protocol/src/btga_transport.c)
