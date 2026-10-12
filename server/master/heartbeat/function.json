@@ -1,0 +1,7 @@
+{
+  "scriptFile": "index.js",
+  "bindings": [
+    { "authLevel": "anonymous", "type": "httpTrigger", "direction": "in", "name": "req", "methods": ["put"], "route": "v1/lobbies/{lobbyId}/heartbeat" },
+    { "type": "http", "direction": "out", "name": "res" }
+  ]
+}

@@ -1,0 +1,10 @@
+/build/
+/.cache/
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+local.settings.json
+*.zip

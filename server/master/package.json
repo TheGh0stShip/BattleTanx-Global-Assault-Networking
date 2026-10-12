@@ -1,0 +1,16 @@
+{
+  "name": "@battletanx-ga/master-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BattleTanx: Global Assault cross-platform lobby master",
+  "license": "GPL-2.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@azure/data-tables": "^13.3.1"
+  }
+}

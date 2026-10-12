@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  protocol:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  master:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/master/package-lock.json
+      - name: Install master-service dependencies
+        working-directory: server/master
+        run: npm ci
+      - name: Test master service core
+        working-directory: server/master
+        run: npm test
+      - name: Validate deployment scripts
+        run: sh -n scripts/*.sh
+      - name: Build deployable package
+        run: scripts/package-master.sh build/ci-master.zip
+      - name: Repository safety
+        shell: bash
+        run: |
+          if find . \( -path ./.git -o -path ./build -o -path '*/node_modules' \) -prune -o -type f \( -name '*.z64' -o -name '*.n64' -o -name '*.v64' -o -name '*.rom' -o -name '*.zip' -o -name '*.pfx' \) -print | grep -q .; then
+            echo 'Forbidden generated, ROM, package, or certificate file found.' >&2
+            exit 1
+          fi
