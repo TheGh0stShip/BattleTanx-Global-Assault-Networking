@@ -60,11 +60,33 @@ test("join tokens are bound to a lobby and expire", async () => {
     assert.equal(payload.session, result.session_id);
     assert.equal(payload.protocol, 1);
     assert.equal(payload.build, registration.build);
+    assert.equal(payload.role, "client");
+    assert.equal(payload.max_players, 4);
     state.now += 31;
     await assert.rejects(
         service.validateJoinToken(result.lobby.id, auth, joined.join_token),
         (error) => error instanceof MasterError && error.code === "invalid_token"
     );
+});
+
+test("relay-only hosts need no public UDP port", async () => {
+    const { store, state, registration } = fixture();
+    const relay = { address: "relay.example", udp_port: 30420 };
+    const service = new MasterService(store, Buffer.alloc(32, "t"), () => state.now, relay);
+    const withoutPort = { ...registration };
+    delete withoutPort.udp_port;
+    const result = await service.register(withoutPort, "203.0.113.7");
+    assert.deepEqual(result.relay, relay);
+    assert.equal(typeof result.relay_token, "string");
+    const joined = await service.join(result.lobby.id, {
+        protocol: 1, build: registration.build, platform: "pc"
+    });
+    assert.equal(joined.host, null);
+    assert.deepEqual(joined.relay, relay);
+    const refreshed = await service.heartbeat(
+        result.lobby.id, `Bearer ${result.host_secret}`, 1
+    );
+    assert.notEqual(refreshed.relay_token, result.relay_token);
 });
 
 test("invalid and full lobbies are rejected", async () => {

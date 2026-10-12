@@ -54,3 +54,16 @@ jobs:
             echo 'Forbidden generated, ROM, package, or certificate file found.' >&2
             exit 1
           fi
+
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Test authenticated UDP relay
+        working-directory: server/relay
+        run: npm test
+      - name: Build relay container
+        run: docker build -t btga-udp-relay:test server/relay

@@ -81,13 +81,37 @@ function constantTimeEqual(left, right) {
 }
 
 class MasterService {
-    constructor(store, secretKey, clock = () => Date.now() / 1000) {
+    constructor(store, secretKey, clock = () => Date.now() / 1000, relayEndpoint = null) {
         this.store = store;
         this.secretKey = Buffer.from(secretKey);
         this.clock = clock;
+        this.relayEndpoint = relayEndpoint;
         if (this.secretKey.length < 32) {
             throw new Error("secretKey must contain at least 32 bytes");
         }
+    }
+
+    issueAdmissionToken(payload) {
+        const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+        const signature = crypto
+            .createHmac("sha256", this.secretKey)
+            .update(encoded)
+            .digest("base64url");
+        return `${encoded}.${signature}`;
+    }
+
+    issueHostRelayToken(lobby) {
+        return this.issueAdmissionToken({
+            lobby: lobby.id,
+            session: lobby.session_id,
+            protocol: lobby.protocol,
+            build: lobby.build,
+            platform: lobby.platform,
+            role: "host",
+            max_players: lobby.max_players,
+            expires: lobby.expires_at,
+            nonce: crypto.randomBytes(8).toString("hex")
+        });
     }
 
     secretHash(lobbyId, secret) {
@@ -133,6 +157,8 @@ class MasterService {
         }
         const maxPlayers = integer(data, "max_players", 1, MAX_PLAYERS);
         const currentPlayers = integer(data, "current_players", 1, maxPlayers);
+        const udpPort = data.udp_port === undefined
+            ? 0 : integer(data, "udp_port", 1, 65535);
         const now = Math.floor(this.clock());
         const lobbyId = crypto.randomBytes(12).toString("base64url");
         const hostSecret = crypto.randomBytes(32).toString("base64url");
@@ -147,7 +173,7 @@ class MasterService {
             max_players: maxPlayers,
             current_players: currentPlayers,
             host_ip: observedIp,
-            udp_port: integer(data, "udp_port", 1, 65535),
+            udp_port: udpPort,
             session_id: crypto.randomBytes(8).toString("hex"),
             secret_hash: this.secretHash(lobbyId, hostSecret),
             expires_at: now + LOBBY_TTL_SECONDS,
@@ -157,7 +183,9 @@ class MasterService {
         return {
             lobby: MasterService.publicLobby(lobby),
             host_secret: hostSecret,
-            session_id: lobby.session_id
+            session_id: lobby.session_id,
+            relay: this.relayEndpoint,
+            relay_token: this.issueHostRelayToken(lobby)
         };
     }
 
@@ -189,7 +217,10 @@ class MasterService {
         lobby.updated_at = now;
         lobby.expires_at = now + LOBBY_TTL_SECONDS;
         await this.store.put(lobby);
-        return MasterService.publicLobby(lobby);
+        return {
+            ...MasterService.publicLobby(lobby),
+            relay_token: this.issueHostRelayToken(lobby)
+        };
     }
 
     async remove(lobbyId, bearer) {
@@ -226,18 +257,17 @@ class MasterService {
             protocol: lobby.protocol,
             build: lobby.build,
             platform,
+            role: "client",
+            max_players: lobby.max_players,
             expires: now + JOIN_TOKEN_TTL_SECONDS,
             nonce: crypto.randomBytes(8).toString("hex")
         };
-        const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
-        const signature = crypto
-            .createHmac("sha256", this.secretKey)
-            .update(encoded)
-            .digest("base64url");
         return {
-            host: { address: lobby.host_ip, udp_port: lobby.udp_port },
+            host: lobby.udp_port === 0
+                ? null : { address: lobby.host_ip, udp_port: lobby.udp_port },
+            relay: this.relayEndpoint,
             session_id: lobby.session_id,
-            join_token: `${encoded}.${signature}`,
+            join_token: this.issueAdmissionToken(payload),
             expires_at: payload.expires
         };
     }
@@ -265,6 +295,7 @@ class MasterService {
             if (
                 payload.lobby !== lobbyId ||
                 payload.session !== lobby.session_id ||
+                payload.role !== "client" ||
                 !Number.isInteger(payload.expires) ||
                 payload.expires < Math.floor(this.clock())
             ) {

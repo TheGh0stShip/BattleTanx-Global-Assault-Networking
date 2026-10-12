@@ -22,9 +22,10 @@ Table Storage and is suitable for deployment checks.
 | `region` | 1–24 printable characters |
 | `max_players` | 1–16; initial gameplay remains limited to four |
 | `current_players` | 1–`max_players` |
-| `udp_port` | 1–65535 |
+| `udp_port` | optional legacy direct-UDP port; omit for relay-only play |
 
-The response includes a public `lobby`, a `host_secret`, and a cryptographically
+The response includes a public `lobby`, a `host_secret`, a short-lived
+`relay_token`, the configured public `relay` endpoint, and a cryptographically
 random 64-bit `session_id` encoded as exactly 16 hexadecimal characters. The
 secret is returned exactly once and must not be logged or sent to peers. The
 host parses `session_id` into the fixed-width gameplay packet-header field.
@@ -40,7 +41,7 @@ Host addresses and credentials are intentionally omitted.
 The following routes require `Authorization: Bearer HOST_SECRET`:
 
 - `PUT /lobbies/{id}/heartbeat` with `{ "current_players": N }` extends the
-  90-second lobby lease.
+  90-second lobby lease and returns a refreshed host `relay_token`.
 - `DELETE /lobbies/{id}` removes the lobby.
 - `POST /lobbies/{id}/validate-join` with `{ "join_token": "..." }` verifies
   a client token before admitting that client to the UDP session.
@@ -48,11 +49,22 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
 ## Joining
 
 `POST /lobbies/{id}/join` accepts `protocol`, `build`, and `platform`. It
-returns the observed host endpoint, the same 16-character hexadecimal
-`session_id`, and an HMAC-authenticated join token that expires after 30
-seconds. The token is opaque to clients. `session_id` is bound into the token
-and converts exactly to the unsigned 64-bit gameplay header field without
-depending on JSON number precision.
+returns the configured public `relay` endpoint, the same 16-character
+hexadecimal `session_id`, and an HMAC-authenticated join token that expires
+after 30 seconds. A legacy direct `host` endpoint is returned only when the host
+explicitly advertised one; it is not required for relay play. The token is
+opaque to clients and also admits one outbound UDP mapping at the relay.
+`session_id` is bound into the token and converts exactly to the unsigned
+64-bit gameplay header field without depending on JSON number precision.
+
+## Relay data plane
+
+The HTTP master never receives gameplay packets. A port sends `BIND` to the
+returned relay using the host relay token or client join token, receives a
+bounded relay slot, then wraps each complete gameplay datagram in `DATA`.
+Clients address slot 0 only. The host may address a bound client slot or the
+broadcast slot. This path requires no UPnP, NAT-PMP, port forwarding, or public
+player address.
 
 ## Errors
 

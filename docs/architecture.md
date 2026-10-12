@@ -18,16 +18,29 @@ only after structural validation. It does
 not open sockets or allocate memory. Platform ports keep ownership of packet
 buffers and supply their own UDP, clock, HTTPS and secure-random adapters.
 
-## Direct UDP admission
+## Relay admission
 
-After HTTPS join, the client and host use four bounded payloads:
+The default public path requires no UPnP, NAT-PMP, manual port forwarding or
+inbound listener on a player's router. Host and clients each create an outbound
+UDP mapping to the same public relay and bind it using a short-lived token from
+the master. The relay assigns transport slots, never discloses player addresses,
+and forwards only within the token's session.
+
+The relay envelope is fixed-width, big-endian and capped at 1224 bytes: a
+24-byte relay header around one complete, at-most-1200-byte gameplay datagram.
+Clients can address only slot 0 (the host). Only slot 0 can address a client or
+broadcast. The relay verifies the inner protocol version, session ID, length and
+`BTGA_NET_FLAG_RELAYED` flag before forwarding it unchanged. Invalid admission
+tokens receive no response, preventing an unauthenticated reflection oracle.
+
+After HTTPS join and relay binding, the client and host use four bounded payloads:
 
 1. `HELLO` carries the opaque short-lived join token, platform capabilities,
    and a client nonce. Its header uses `BTGA_NET_UNASSIGNED_PEER_ID`; that value
    is legal only for `HELLO` and `AUTHENTICATE` and is never accepted by the
    established-peer endpoint decoder.
 2. `CHALLENGE` echoes that nonce and adds a host nonce, proving that the
-   claimed source endpoint can receive traffic before the host does costly
+   assigned relay slot can receive traffic before the host does costly
    validation or allocates a peer slot.
 3. `AUTHENTICATE` echoes both nonces. The host then validates the cached join
    token over authenticated HTTPS; its claims bind lobby, session, protocol,
@@ -35,7 +48,8 @@ After HTTPS join, the client and host use four bounded payloads:
 4. `WELCOME` echoes the client nonce and assigns the peer ID, player limit,
    simulation rate, and initial tick.
 
-The common library only encodes and validates these messages. Ports own
+The common library only encodes and validates these messages and relay
+envelopes. Ports own
 timeouts, pending-handshake storage, HTTPS callbacks and cryptographically
 secure nonce generation. The join token is a short-lived bearer sent over the
 initial UDP path; v1 protects against off-path spoofing, not an on-path network
@@ -72,13 +86,18 @@ until the recovered game-state ownership boundary is audited.
 
 ## Topology
 
-The first production topology is host-authoritative:
+The first production topology is host-authoritative and relay-first:
 
 1. A host registers a lobby with the Azure master over HTTPS.
-2. The master stores bounded metadata and the observed public endpoint.
+2. The master stores bounded metadata and issues a signed relay credential.
 3. Compatible clients discover or join the lobby over HTTPS.
-4. Peers attempt direct UDP connectivity.
-5. A relay may be introduced later for failed NAT traversal.
+4. Every peer binds an outbound UDP mapping to the public relay.
+5. Clients send only to the host's relay slot; the host validates and
+   redistributes authoritative match traffic.
+
+An optional direct peer path may be researched later as a latency optimization,
+but it can never be required for joining. The supported baseline contains no
+UPnP or NAT-PMP implementation.
 
 The master is not a simulation server. It does not receive world snapshots or
 inputs. This makes scale-to-zero control-plane hosting practical and keeps the
@@ -94,7 +113,7 @@ form avoids precision loss in JSON; ports parse it into the fixed-width
 The production master runs on Node.js 22 in Azure Functions Flex Consumption.
 It scales to zero, keeps no lobby state in process memory, and stores only
 bounded discovery metadata in Azure Table Storage. Gameplay packets never
-traverse the master service.
+traverse the master service; they use the separately budgeted UDP relay.
 
 ## Explicit opt-in and match flow
 

@@ -15,21 +15,22 @@ or individual game port.
 - Fixed big-endian wire format with golden compatibility vectors
 - Wrap-safe sequence/acknowledgement window with duplicate suppression
 - Socket-free endpoint codec with per-peer replay filtering and session checks
-- Allocation-free direct-UDP admission payload codecs
+- Allocation-free UDP admission and relay-envelope codecs
 - Allocation-free client/host admission state machines
 - Fixed-capacity reliable-send tracking with ACK release and retry expiry
 - Endian-stable batches of original N64 controller input by simulation tick
 - Sixteen protocol peer slots reserved
 - Host-authoritative topology selected
-- Direct UDP is the first gameplay path
+- Authenticated public UDP relay is the default gameplay path
 - Azure lobby/discovery core and Node 22 Functions adapter
-- Paid UDP relay is deliberately deferred until direct gameplay works
+- No UPnP, NAT-PMP or manual port forwarding is required
 - Networking is dormant until a player explicitly enters Online Multiplayer
 - Network matches use one full-screen local camera per device by default
 
 The production discovery API is available at
 [`https://btga.thegh0stship.com/api/v1`](https://btga.thegh0stship.com/api/v1/health).
-It is a scale-to-zero control plane; it does not relay gameplay traffic.
+It is a scale-to-zero control plane; the separately deployed UDP data plane
+relays gameplay traffic without exposing player addresses to one another.
 
 The retail simulation remains four-player until every fixed-size gameplay,
 camera, HUD, spawn and scoring structure is audited. A 16-slot packet format is
@@ -74,6 +75,19 @@ The service is deliberately implemented with static Azure Functions metadata.
 This keeps route discovery deterministic and avoids making any platform port
 depend on Azure-specific libraries; only the service's Table Storage adapter
 has an Azure dependency.
+
+The relay has no npm dependencies and can be exercised locally without Azure:
+
+```sh
+cd server/relay
+npm test
+BTGA_MASTER_SECRET='at-least-32-random-bytes' npm start
+```
+
+Its end-to-end test opens a relay plus two independent UDP sockets, binds them
+with master-issued credentials, and verifies an encapsulated gameplay datagram
+travels from client to host. Invalid credentials are dropped silently, clients
+cannot address other clients, and only the authenticated host can broadcast.
 
 ## Repository boundaries
 

@@ -13,9 +13,19 @@ async function productionService() {
         if (!connection || !secret) {
             throw new Error("required master-service settings are missing");
         }
+        const relayHost = process.env.BTGA_RELAY_HOST;
+        const relayPort = Number(process.env.BTGA_RELAY_PORT || 30420);
+        const relayEndpoint = relayHost && Number.isInteger(relayPort) && relayPort >= 1 && relayPort <= 65535
+            ? { address: relayHost, udp_port: relayPort }
+            : null;
         servicePromise = AzureLobbyStore
             .connect(connection, process.env.BTGA_LOBBY_TABLE || "BtgaLobbies")
-            .then((store) => new MasterService(store, Buffer.from(secret, "utf8")));
+            .then((store) => new MasterService(
+                store,
+                Buffer.from(secret, "utf8"),
+                undefined,
+                relayEndpoint
+            ));
     }
     return servicePromise;
 }
