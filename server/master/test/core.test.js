@@ -58,6 +58,8 @@ test("join tokens are bound to a lobby and expire", async () => {
     const payload = await service.validateJoinToken(result.lobby.id, auth, joined.join_token);
     assert.equal(payload.platform, "vita");
     assert.equal(payload.session, result.session_id);
+    assert.equal(payload.protocol, 1);
+    assert.equal(payload.build, registration.build);
     state.now += 31;
     await assert.rejects(
         service.validateJoinToken(result.lobby.id, auth, joined.join_token),

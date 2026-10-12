@@ -18,6 +18,30 @@ only after structural validation. It does
 not open sockets or allocate memory. Platform ports keep ownership of packet
 buffers and supply their own UDP, clock, HTTPS and secure-random adapters.
 
+## Direct UDP admission
+
+After HTTPS join, the client and host use four bounded payloads:
+
+1. `HELLO` carries the opaque short-lived join token, platform capabilities,
+   and a client nonce. Its header uses `BTGA_NET_UNASSIGNED_PEER_ID`; that value
+   is legal only for `HELLO` and `AUTHENTICATE` and is never accepted by the
+   established-peer endpoint decoder.
+2. `CHALLENGE` echoes that nonce and adds a host nonce, proving that the
+   claimed source endpoint can receive traffic before the host does costly
+   validation or allocates a peer slot.
+3. `AUTHENTICATE` echoes both nonces. The host then validates the cached join
+   token over authenticated HTTPS; its claims bind lobby, session, protocol,
+   build, platform, expiry, and a master-generated token nonce.
+4. `WELCOME` echoes the client nonce and assigns the peer ID, player limit,
+   simulation rate, and initial tick.
+
+The common library only encodes and validates these messages. Ports own
+timeouts, pending-handshake storage, HTTPS callbacks and cryptographically
+secure nonce generation. The join token is a short-lived bearer sent over the
+initial UDP path; v1 protects against off-path spoofing, not an on-path network
+attacker. Gameplay encryption is a future protocol revision, not an implied
+property of this handshake.
+
 ## Topology
 
 The first production topology is host-authoritative:

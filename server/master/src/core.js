@@ -223,6 +223,8 @@ class MasterService {
         const payload = {
             lobby: lobbyId,
             session: lobby.session_id,
+            protocol: lobby.protocol,
+            build: lobby.build,
             platform,
             expires: now + JOIN_TOKEN_TTL_SECONDS,
             nonce: crypto.randomBytes(8).toString("hex")

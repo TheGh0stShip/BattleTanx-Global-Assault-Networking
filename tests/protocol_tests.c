@@ -53,5 +53,13 @@ int main(void) {
                                      BTGA_NET_SESSION_ID_TEXT_SIZE));
     CHECK(!btga_net_format_session_id(session_text,
                                       BTGA_NET_SESSION_ID_TEXT_SIZE, session_id));
+
+    header.message_type = BTGA_NET_MSG_HELLO;
+    header.peer_id = BTGA_NET_UNASSIGNED_PEER_ID;
+    CHECK(btga_net_encode_header(packet, sizeof(packet), &header) ==
+          BTGA_NET_HEADER_SIZE);
+    CHECK(btga_net_decode_header(&decoded, packet, sizeof(packet)));
+    header.message_type = BTGA_NET_MSG_INPUT;
+    CHECK(btga_net_encode_header(packet, sizeof(packet), &header) == 0U);
     return 0;
 }

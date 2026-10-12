@@ -43,13 +43,17 @@ static int hex_value(char character) {
 }
 
 static int valid_header(const BtgaNetHeader* header) {
+    const int unassigned_handshake =
+        header->peer_id == BTGA_NET_UNASSIGNED_PEER_ID &&
+        (header->message_type == BTGA_NET_MSG_HELLO ||
+         header->message_type == BTGA_NET_MSG_AUTHENTICATE);
     return header->protocol_version == BTGA_NET_PROTOCOL_VERSION &&
            header->message_type >= BTGA_NET_MSG_HELLO &&
            header->message_type <= BTGA_NET_MSG_DISCONNECT &&
            (header->flags & ~(BTGA_NET_FLAG_RELIABLE | BTGA_NET_FLAG_FRAGMENT |
                               BTGA_NET_FLAG_RELAYED)) == 0U &&
            header->payload_size <= BTGA_NET_MAX_PAYLOAD_SIZE &&
-           header->peer_id < BTGA_NET_MAX_PLAYERS;
+           (header->peer_id < BTGA_NET_MAX_PLAYERS || unassigned_handshake);
 }
 
 size_t btga_net_encode_header(uint8_t* destination, size_t destination_size,

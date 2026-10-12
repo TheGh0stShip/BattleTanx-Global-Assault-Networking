@@ -73,6 +73,13 @@ static int test_rejection_and_sequence_wrap(void) {
     packet[0] = 0U;
     CHECK(btga_net_endpoint_decode(&destination, &view, packet, packet_size) ==
           BTGA_NET_PACKET_INVALID);
+
+    packet[0] = 0x42U;
+    packet[6] = BTGA_NET_MSG_HELLO;
+    packet[30] = 0xFFU;
+    packet[31] = 0xFFU;
+    CHECK(btga_net_endpoint_decode(&destination, &view, packet, packet_size) ==
+          BTGA_NET_PACKET_INVALID);
     return 0;
 }
 

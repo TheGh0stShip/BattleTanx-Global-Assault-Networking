@@ -69,7 +69,7 @@ request 200 "$tmp/validate.json" \
     --data "{\"join_token\":\"$join_token\"}" \
     "$base/lobbies/$lobby_id/validate-join"
 jq -e --arg session "$registered_session_id" \
-    '.valid==true and .claims.platform=="vita" and .claims.session==$session' \
+    '.valid==true and .claims.platform=="vita" and .claims.session==$session and .claims.protocol==1 and .claims.build=="conformance-v1"' \
     "$tmp/validate.json" >/dev/null
 
 request 204 "$tmp/delete.txt" \

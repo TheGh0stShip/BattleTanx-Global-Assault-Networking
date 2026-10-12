@@ -15,6 +15,7 @@ or individual game port.
 - Fixed big-endian wire format with golden compatibility vectors
 - Wrap-safe sequence/acknowledgement window with duplicate suppression
 - Socket-free endpoint codec with per-peer replay filtering and session checks
+- Allocation-free direct-UDP admission payload codecs
 - Sixteen protocol peer slots reserved
 - Host-authoritative topology selected
 - Direct UDP is the first gameplay path

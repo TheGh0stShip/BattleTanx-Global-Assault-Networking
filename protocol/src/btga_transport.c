@@ -74,6 +74,9 @@ BtgaNetPacketResult btga_net_endpoint_decode(BtgaNetEndpoint* endpoint,
     if (header.session_id != endpoint->session_id) {
         return BTGA_NET_PACKET_WRONG_SESSION;
     }
+    if (header.peer_id >= BTGA_NET_MAX_PLAYERS) {
+        return BTGA_NET_PACKET_INVALID;
+    }
     if (header.peer_id == endpoint->local_peer_id) {
         return BTGA_NET_PACKET_SELF;
     }
