@@ -52,6 +52,17 @@ bytes when polling returns `BTGA_NET_RETRY_READY`, and terminate or degrade the
 peer when it returns `BTGA_NET_RETRY_EXPIRED`. Time inputs are unsigned
 monotonic milliseconds supplied by the platform adapter.
 
+## Gameplay input boundary
+
+`BtgaNetInputBatch` carries one to 32 consecutive simulation ticks of the
+original N64 input model: a 16-bit button mask and signed 8-bit stick axes.
+Ticks and buttons are explicitly big-endian on the wire; signed axes are raw
+two's-complement bytes. Repeating recent frames in later batches provides
+loss tolerance without increasing the original simulation rate. The host must
+authenticate the packet's peer-to-player assignment rather than trusting the
+payload's player ID. World snapshots remain game-specific and are not defined
+until the recovered game-state ownership boundary is audited.
+
 ## Topology
 
 The first production topology is host-authoritative:

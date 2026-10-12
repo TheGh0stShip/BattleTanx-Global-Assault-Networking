@@ -8,6 +8,7 @@ option(BTGA_NET_BUILD_TESTS "Build protocol conformance tests" ON)
 
 add_library(btga_net_protocol STATIC
     protocol/src/btga_delivery.c
+    protocol/src/btga_gameplay.c
     protocol/src/btga_handshake.c
     protocol/src/btga_net.c
     protocol/src/btga_reliability.c
@@ -97,4 +98,13 @@ if(BTGA_NET_BUILD_TESTS)
         target_compile_options(btga_net_delivery_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME reliable_delivery COMMAND btga_net_delivery_tests)
+
+    add_executable(btga_net_gameplay_tests tests/gameplay_tests.c)
+    target_link_libraries(btga_net_gameplay_tests PRIVATE btga_net_protocol)
+    if(MSVC)
+        target_compile_options(btga_net_gameplay_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(btga_net_gameplay_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME gameplay_input_codec COMMAND btga_net_gameplay_tests)
 endif()

@@ -1,0 +1,51 @@
+#include "btga/btga_gameplay.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#define CHECK(condition) do { \
+    if (!(condition)) { \
+        fprintf(stderr, "check failed at %s:%d: %s\n", __FILE__, __LINE__, #condition); \
+        return 1; \
+    } \
+} while (0)
+
+int main(void) {
+    static const uint8_t expected[] = {
+        0x01, 0x03, 0x02, 0x00, 0xFF, 0xFF, 0xFF, 0xFE,
+        0x90, 0x01, 0xB0, 0x50, 0x20, 0x04, 0x80, 0x7F
+    };
+    BtgaNetInputBatch source = {0};
+    BtgaNetInputBatch decoded = {0};
+    uint8_t payload[BTGA_NET_MAX_PAYLOAD_SIZE];
+    size_t encoded_size;
+    source.first_tick = UINT32_MAX - 1U;
+    source.player_id = 3U;
+    source.frame_count = 2U;
+    source.frames[0].buttons = UINT16_C(0x9001);
+    source.frames[0].stick_x = -80;
+    source.frames[0].stick_y = 80;
+    source.frames[1].buttons = UINT16_C(0x2004);
+    source.frames[1].stick_x = INT8_MIN;
+    source.frames[1].stick_y = INT8_MAX;
+    encoded_size = btga_net_encode_input_batch(payload, sizeof(payload), &source);
+    CHECK(encoded_size == sizeof(expected));
+    CHECK(memcmp(payload, expected, sizeof(expected)) == 0);
+    CHECK(btga_net_decode_input_batch(&decoded, payload, encoded_size));
+    CHECK(decoded.first_tick == source.first_tick);
+    CHECK(decoded.player_id == source.player_id && decoded.frame_count == 2U);
+    CHECK(decoded.frames[0].buttons == source.frames[0].buttons);
+    CHECK(decoded.frames[0].stick_x == -80 && decoded.frames[0].stick_y == 80);
+    CHECK(decoded.frames[1].stick_x == INT8_MIN &&
+          decoded.frames[1].stick_y == INT8_MAX);
+    payload[3] = 1U;
+    CHECK(!btga_net_decode_input_batch(&decoded, payload, encoded_size));
+    payload[3] = 0U;
+    CHECK(!btga_net_decode_input_batch(&decoded, payload, encoded_size - 1U));
+    source.frame_count = 0U;
+    CHECK(btga_net_encode_input_batch(payload, sizeof(payload), &source) == 0U);
+    source.frame_count = BTGA_NET_MAX_INPUT_FRAMES + 1U;
+    CHECK(btga_net_encode_input_batch(payload, sizeof(payload), &source) == 0U);
+    return 0;
+}
