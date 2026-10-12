@@ -24,6 +24,8 @@ int main(void) {
     };
     uint8_t packet[BTGA_NET_HEADER_SIZE];
     BtgaNetHeader decoded;
+    uint64_t session_id = 0U;
+    char session_text[BTGA_NET_SESSION_ID_TEXT_SIZE + 1U];
 
     CHECK(btga_net_encode_header(packet, sizeof(packet), &header) == BTGA_NET_HEADER_SIZE);
     CHECK(memcmp(packet, expected, sizeof(expected)) == 0);
@@ -41,5 +43,15 @@ int main(void) {
     CHECK(btga_net_decode_header(&decoded, packet, sizeof(packet)) == 0);
     packet[7] = BTGA_NET_FLAG_RELIABLE;
     CHECK(btga_net_decode_header(&decoded, packet, sizeof(packet) - 1U) == 0);
+    CHECK(btga_net_parse_session_id(&session_id, "0123456789ABCDEF",
+                                    BTGA_NET_SESSION_ID_TEXT_SIZE));
+    CHECK(session_id == UINT64_C(0x0123456789ABCDEF));
+    CHECK(btga_net_format_session_id(session_text, sizeof(session_text), session_id));
+    CHECK(strcmp(session_text, "0123456789abcdef") == 0);
+    CHECK(!btga_net_parse_session_id(&session_id, "1234", 4U));
+    CHECK(!btga_net_parse_session_id(&session_id, "0123456789abcdeg",
+                                     BTGA_NET_SESSION_ID_TEXT_SIZE));
+    CHECK(!btga_net_format_session_id(session_text,
+                                      BTGA_NET_SESSION_ID_TEXT_SIZE, session_id));
     return 0;
 }

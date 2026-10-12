@@ -28,6 +28,9 @@ The response includes a public `lobby`, a `host_secret`, and a cryptographically
 random 64-bit `session_id` encoded as exactly 16 hexadecimal characters. The
 secret is returned exactly once and must not be logged or sent to peers. The
 host parses `session_id` into the fixed-width gameplay packet-header field.
+The portable C package provides strict `btga_net_parse_session_id` and
+`btga_net_format_session_id` helpers so ports never route this value through a
+JSON number or an ABI-dependent native integer conversion.
 
 `GET /lobbies?protocol=1&build=BUILD` lists compatible, unexpired lobbies.
 Host addresses and credentials are intentionally omitted.

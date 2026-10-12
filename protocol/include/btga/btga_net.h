@@ -13,6 +13,7 @@ extern "C" {
 #define BTGA_NET_MAX_DATAGRAM_SIZE 1200U
 #define BTGA_NET_MAX_PAYLOAD_SIZE (BTGA_NET_MAX_DATAGRAM_SIZE - BTGA_NET_HEADER_SIZE)
 #define BTGA_NET_MAX_PLAYERS 16U
+#define BTGA_NET_SESSION_ID_TEXT_SIZE 16U
 
 typedef enum BtgaNetPlatform {
     BTGA_NET_PLATFORM_UNKNOWN = 0,
@@ -70,6 +71,10 @@ size_t btga_net_encode_header(uint8_t* destination, size_t destination_size,
                               const BtgaNetHeader* header);
 int btga_net_decode_header(BtgaNetHeader* header, const uint8_t* packet,
                            size_t packet_size);
+int btga_net_parse_session_id(uint64_t* session_id, const char* text,
+                              size_t text_size);
+int btga_net_format_session_id(char* destination, size_t destination_size,
+                               uint64_t session_id);
 
 #ifdef __cplusplus
 }

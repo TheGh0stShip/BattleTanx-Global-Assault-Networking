@@ -29,6 +29,19 @@ static uint64_t get_u64(const uint8_t* input) {
     return ((uint64_t)get_u32(input) << 32) | get_u32(input + 4);
 }
 
+static int hex_value(char character) {
+    if (character >= '0' && character <= '9') {
+        return character - '0';
+    }
+    if (character >= 'a' && character <= 'f') {
+        return character - 'a' + 10;
+    }
+    if (character >= 'A' && character <= 'F') {
+        return character - 'A' + 10;
+    }
+    return -1;
+}
+
 static int valid_header(const BtgaNetHeader* header) {
     return header->protocol_version == BTGA_NET_PROTOCOL_VERSION &&
            header->message_type >= BTGA_NET_MSG_HELLO &&
@@ -75,4 +88,42 @@ int btga_net_decode_header(BtgaNetHeader* header, const uint8_t* packet,
     header->peer_id = get_u16(packet + 30);
     return valid_header(header) &&
            packet_size == BTGA_NET_HEADER_SIZE + (size_t)header->payload_size;
+}
+
+int btga_net_parse_session_id(uint64_t* session_id, const char* text,
+                              size_t text_size) {
+    uint64_t value = 0U;
+    size_t index;
+
+    if (session_id == NULL || text == NULL ||
+        text_size != BTGA_NET_SESSION_ID_TEXT_SIZE) {
+        return 0;
+    }
+    for (index = 0U; index < BTGA_NET_SESSION_ID_TEXT_SIZE; ++index) {
+        const int digit = hex_value(text[index]);
+        if (digit < 0) {
+            return 0;
+        }
+        value = (value << 4) | (uint64_t)(unsigned int)digit;
+    }
+    *session_id = value;
+    return 1;
+}
+
+int btga_net_format_session_id(char* destination, size_t destination_size,
+                               uint64_t session_id) {
+    static const char digits[] = "0123456789abcdef";
+    size_t index;
+
+    if (destination == NULL ||
+        destination_size < BTGA_NET_SESSION_ID_TEXT_SIZE + 1U) {
+        return 0;
+    }
+    for (index = 0U; index < BTGA_NET_SESSION_ID_TEXT_SIZE; ++index) {
+        const unsigned int shift = (unsigned int)
+            ((BTGA_NET_SESSION_ID_TEXT_SIZE - index - 1U) * 4U);
+        destination[index] = digits[(session_id >> shift) & UINT64_C(0xF)];
+    }
+    destination[BTGA_NET_SESSION_ID_TEXT_SIZE] = '\0';
+    return 1;
 }
