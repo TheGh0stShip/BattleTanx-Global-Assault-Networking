@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Authenticated outbound-only UDP relay for BattleTanx: Global Assault",
-  "license": "GPL-2.0-only",
+  "license": "GPL-2.0-or-later",
   "engines": {
     "node": ">=22"
   },
