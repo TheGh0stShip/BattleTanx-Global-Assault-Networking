@@ -13,6 +13,7 @@ const VALID_PLATFORMS = new Set([
     "pc", "vita", "xbox", "xbox360", "ps3", "ps4", "ps5", "3ds"
 ]);
 const BUILD_PATTERN = /^[A-Za-z0-9._+-]{1,64}$/;
+const VALID_STATES = new Set(["lobby", "playing"]);
 
 class MasterError extends Error {
     constructor(status, code, message) {
@@ -141,7 +142,7 @@ class MasterService {
         const result = {};
         for (const key of [
             "id", "name", "protocol", "build", "platform", "capabilities", "region",
-            "max_players", "current_players", "expires_at"
+            "max_players", "current_players", "state", "expires_at"
         ]) {
             result[key] = lobby[key];
         }
@@ -178,6 +179,7 @@ class MasterService {
             region: text(data, "region", 24),
             max_players: maxPlayers,
             current_players: currentPlayers,
+            state: data.state === undefined ? "lobby" : text(data, "state", 16).toLowerCase(),
             host_ip: observedIp,
             udp_port: udpPort,
             session_id: crypto.randomBytes(8).toString("hex"),
@@ -185,6 +187,9 @@ class MasterService {
             expires_at: now + LOBBY_TTL_SECONDS,
             updated_at: now
         };
+        if (!VALID_STATES.has(lobby.state)) {
+            throw new MasterError(400, "invalid_field", "state must be lobby or playing");
+        }
         await this.store.put(lobby);
         return {
             lobby: MasterService.publicLobby(lobby),
@@ -209,7 +214,29 @@ class MasterService {
         return result;
     }
 
-    async heartbeat(lobbyId, bearer, currentPlayers) {
+    async publicSnapshot() {
+        const now = Math.floor(this.clock());
+        const lobbies = [];
+        for (const lobby of await this.store.list()) {
+            if (lobby.expires_at <= now) {
+                await this.store.delete(lobby.id);
+                continue;
+            }
+            const publicLobby = MasterService.publicLobby(lobby);
+            if (publicLobby.state === undefined) publicLobby.state = "lobby";
+            lobbies.push(publicLobby);
+        }
+        lobbies.sort((a, b) => b.current_players - a.current_players || a.id.localeCompare(b.id));
+        return {
+            generated_at: now,
+            games: lobbies.filter((lobby) => lobby.state === "playing").length,
+            open_lobbies: lobbies.filter((lobby) => lobby.state !== "playing").length,
+            players: lobbies.reduce((total, lobby) => total + lobby.current_players, 0),
+            sessions: lobbies
+        };
+    }
+
+    async heartbeat(lobbyId, bearer, currentPlayers, state) {
         const lobby = await this.store.get(lobbyId);
         if (lobby === null) {
             throw new MasterError(404, "not_found", "lobby not found");
@@ -220,6 +247,14 @@ class MasterService {
         }
         const now = Math.floor(this.clock());
         lobby.current_players = currentPlayers;
+        if (state !== undefined) {
+            if (typeof state !== "string" || !VALID_STATES.has(state.toLowerCase())) {
+                throw new MasterError(400, "invalid_field", "state must be lobby or playing");
+            }
+            lobby.state = state.toLowerCase();
+        } else if (lobby.state === undefined) {
+            lobby.state = "lobby";
+        }
         lobby.updated_at = now;
         lobby.expires_at = now + LOBBY_TTL_SECONDS;
         await this.store.put(lobby);

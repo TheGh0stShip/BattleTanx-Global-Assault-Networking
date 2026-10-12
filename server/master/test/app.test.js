@@ -34,6 +34,26 @@ test("health does not initialize storage", async () => {
     assert.deepEqual(JSON.parse(result.body), { status: "ok", protocol: 1 });
 });
 
+test("dashboard and status expose live public counts", async () => {
+    const { service, factory } = setup();
+    await service.register({
+        name: "Desert <Duel>", protocol: 1, build: "pc-v0.3.0", platform: "pc",
+        capabilities: 3, region: "us-central", max_players: 4, current_players: 2,
+        state: "playing"
+    }, "203.0.113.7");
+    const status = await handle("status", request("GET"), {}, factory);
+    assert.deepEqual(
+        Object.fromEntries(Object.entries(JSON.parse(status.body)).filter(([key]) => key !== "generated_at" && key !== "sessions")),
+        { games: 1, open_lobbies: 0, players: 2 }
+    );
+    const dashboard = await handle("dashboard", request("GET"), {}, factory);
+    assert.equal(dashboard.status, 200);
+    assert.match(dashboard.headers["content-security-policy"], /default-src 'none'/u);
+    assert.match(dashboard.body, /Games in progress/u);
+    assert.match(dashboard.body, /Desert &lt;Duel&gt;/u);
+    assert.doesNotMatch(dashboard.body, /203\.0\.113\.7/u);
+});
+
 test("HTTP lifecycle registers, lists, joins, validates, and removes", async () => {
     const { factory } = setup();
     const registration = {

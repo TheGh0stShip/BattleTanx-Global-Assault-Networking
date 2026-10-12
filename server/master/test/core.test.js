@@ -48,6 +48,40 @@ test("expired lobbies are purged", async () => {
     assert.equal(store.items.size, 0);
 });
 
+test("public snapshot counts games, open lobbies, and players without private fields", async () => {
+    const { service, registration } = fixture();
+    const open = await service.register(registration, "203.0.113.7");
+    const playing = await service.register({
+        ...registration, name: "City Battle", current_players: 3, state: "playing"
+    }, "203.0.113.8");
+    const snapshot = await service.publicSnapshot();
+    assert.equal(snapshot.games, 1);
+    assert.equal(snapshot.open_lobbies, 1);
+    assert.equal(snapshot.players, 4);
+    assert.equal(snapshot.sessions.length, 2);
+    assert.equal(snapshot.sessions[0].id, playing.lobby.id);
+    assert.equal(snapshot.sessions[1].id, open.lobby.id);
+    for (const session of snapshot.sessions) {
+        assert.equal(session.host_ip, undefined);
+        assert.equal(session.secret_hash, undefined);
+        assert.equal(session.session_id, undefined);
+    }
+});
+
+test("heartbeat can move a session between lobby and playing", async () => {
+    const { service, registration } = fixture();
+    const created = await service.register(registration, "203.0.113.7");
+    const auth = `Bearer ${created.host_secret}`;
+    let updated = await service.heartbeat(created.lobby.id, auth, 2, "playing");
+    assert.equal(updated.state, "playing");
+    updated = await service.heartbeat(created.lobby.id, auth, 1, "lobby");
+    assert.equal(updated.state, "lobby");
+    await assert.rejects(
+        service.heartbeat(created.lobby.id, auth, 1, "private"),
+        (error) => error instanceof MasterError && error.code === "invalid_field"
+    );
+});
+
 test("join tokens are bound to a lobby and expire", async () => {
     const { state, service, registration } = fixture();
     const result = await service.register(registration, "203.0.113.7");

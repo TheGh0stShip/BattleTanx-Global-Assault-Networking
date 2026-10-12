@@ -12,6 +12,6 @@ cd "$repo_root/server/master"
 npm test
 zip -q -r "$output" \
     host.json package.json package-lock.json src \
-    health lobbies heartbeat remove_lobby join validate_join
+    dashboard health status lobbies heartbeat remove_lobby join validate_join
 unzip -t "$output" >/dev/null
 printf '%s\n' "$output"

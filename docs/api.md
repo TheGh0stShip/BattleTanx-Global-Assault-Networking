@@ -3,6 +3,13 @@
 The production API root is `https://btga.thegh0stship.com/api/v1`. All request
 and response bodies are UTF-8 JSON. Request bodies are limited to 4096 bytes.
 
+The public, server-rendered dashboard is at
+[`https://btga.thegh0stship.com/`](https://btga.thegh0stship.com/). It reports
+aggregate player, lobby, and in-progress game counts plus public session
+metadata. It never returns player addresses, session identifiers, host
+credentials, or relay admission tokens. `GET /api/v1/status` returns the same
+read-only snapshot as JSON for monitoring and community integrations.
+
 ## Health
 
 `GET /health` returns the service state and protocol version. It does not open
@@ -22,6 +29,7 @@ Table Storage and is suitable for deployment checks.
 | `region` | 1–24 printable characters |
 | `max_players` | 1–16; initial gameplay remains limited to four |
 | `current_players` | 1–`max_players` |
+| `state` | optional `lobby` (default) or `playing` |
 | `udp_port` | optional legacy direct-UDP port; omit for relay-only play |
 
 The response includes a public `lobby`, a `host_secret`, a short-lived
@@ -40,8 +48,9 @@ Host addresses and credentials are intentionally omitted.
 
 The following routes require `Authorization: Bearer HOST_SECRET`:
 
-- `PUT /lobbies/{id}/heartbeat` with `{ "current_players": N }` extends the
-  90-second lobby lease and returns a refreshed host `relay_token`.
+- `PUT /lobbies/{id}/heartbeat` with `{ "current_players": N, "state":
+  "lobby" | "playing" }` extends the 90-second lobby lease and returns a
+  refreshed host `relay_token`. `state` may be omitted for older clients.
 - `DELETE /lobbies/{id}` removes the lobby.
 - `POST /lobbies/{id}/validate-join` with `{ "join_token": "..." }` verifies
   a client token before admitting that client to the UDP session.

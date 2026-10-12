@@ -30,7 +30,9 @@ or individual game port.
 - Networking is dormant until a player explicitly enters Online Multiplayer
 - Network matches use one full-screen local camera per device by default
 
-The production discovery API is available at
+The live multiplayer dashboard is available at
+[`https://btga.thegh0stship.com/`](https://btga.thegh0stship.com/), with the
+production discovery API at
 [`https://btga.thegh0stship.com/api/v1`](https://btga.thegh0stship.com/api/v1/health).
 It is a scale-to-zero control plane; the separately deployed UDP data plane
 relays gameplay traffic without exposing player addresses to one another.
