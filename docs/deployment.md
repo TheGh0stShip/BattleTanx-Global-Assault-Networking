@@ -84,6 +84,26 @@ to deploy. The relay container and `BTGA_MASTER_SECRET` are installed only
 after explicit deployment approval; the secret must never appear in a Bicep
 file, command log, container layer or GitHub artifact.
 
+After deployment approval and VM creation, clone this repository at the exact
+reviewed commit on the VM and run the installer interactively:
+
+```sh
+sudo scripts/install-relay-vm.sh
+```
+
+The installer prompts for the existing master secret with terminal echo
+disabled. It builds the relay image locally, stores the secret only in a
+root-readable `/etc/btga-relay.env`, and installs an auto-restarting systemd
+unit. The secret is not passed as a process argument or baked into the image.
+Update the relay by checking out another reviewed commit and rerunning the
+installer. Inspect service health with:
+
+```sh
+sudo systemctl status btga-relay
+sudo journalctl -u btga-relay --since today
+sudo ss -lun | grep ':30420'
+```
+
 ## Cost and safety controls
 
 - Keep `alwaysReady` empty and cap maximum scale-out conservatively.
