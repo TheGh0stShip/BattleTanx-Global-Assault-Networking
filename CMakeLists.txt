@@ -8,7 +8,8 @@ option(BTGA_NET_BUILD_TESTS "Build protocol conformance tests" ON)
 
 add_library(btga_net_protocol STATIC
     protocol/src/btga_net.c
-    protocol/src/btga_reliability.c)
+    protocol/src/btga_reliability.c
+    protocol/src/btga_transport.c)
 add_library(BattleTanxGA::NetProtocol ALIAS btga_net_protocol)
 target_include_directories(btga_net_protocol PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/protocol/include>
@@ -67,4 +68,13 @@ if(BTGA_NET_BUILD_TESTS)
         target_compile_options(btga_net_reliability_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME reliability_window COMMAND btga_net_reliability_tests)
+
+    add_executable(btga_net_transport_tests tests/transport_tests.c)
+    target_link_libraries(btga_net_transport_tests PRIVATE btga_net_protocol)
+    if(MSVC)
+        target_compile_options(btga_net_transport_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(btga_net_transport_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME transport_endpoint COMMAND btga_net_transport_tests)
 endif()

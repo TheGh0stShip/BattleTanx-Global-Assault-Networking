@@ -1,10 +1,12 @@
 #include <btga/btga_net.h>
 #include <btga/btga_reliability.h>
+#include <btga/btga_transport.h>
 
 #include <stdint.h>
 
 int main(void) {
     BtgaNetReceiveWindow window;
+    BtgaNetEndpoint endpoint;
     BtgaNetHeader header = {
         BTGA_NET_PROTOCOL_VERSION,
         BTGA_NET_MSG_PING,
@@ -21,6 +23,7 @@ int main(void) {
     btga_net_receive_window_init(&window);
     return btga_net_encode_header(packet, sizeof(packet), &header) ==
                    BTGA_NET_HEADER_SIZE &&
+               btga_net_endpoint_init(&endpoint, UINT64_C(1), 0U, 0U) &&
                btga_net_receive_window_record(&window, 1U) == BTGA_NET_RECEIVE_NEW
            ? 0
            : 1;

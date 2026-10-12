@@ -11,6 +11,13 @@ span 32-bit and 64-bit ABIs.
 UDP datagrams are capped at 1200 bytes. The v1 header reserves peer IDs 0–15,
 sequence acknowledgements and a 32-packet acknowledgement bitmap.
 
+`BtgaNetEndpoint` is the portable ingress/egress boundary. It constructs full
+datagrams, owns one replay window per peer, rejects wrong-session and reflected
+self packets, emits destination-specific ACK vectors, and exposes payloads
+only after structural validation. It does
+not open sockets or allocate memory. Platform ports keep ownership of packet
+buffers and supply their own UDP, clock, HTTPS and secure-random adapters.
+
 ## Topology
 
 The first production topology is host-authoritative:

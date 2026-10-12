@@ -14,6 +14,7 @@ or individual game port.
 - Portable C99 packet-header codec
 - Fixed big-endian wire format with golden compatibility vectors
 - Wrap-safe sequence/acknowledgement window with duplicate suppression
+- Socket-free endpoint codec with per-peer replay filtering and session checks
 - Sixteen protocol peer slots reserved
 - Host-authoritative topology selected
 - Direct UDP is the first gameplay path
