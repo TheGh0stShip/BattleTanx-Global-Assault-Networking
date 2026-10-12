@@ -42,6 +42,16 @@ initial UDP path; v1 protects against off-path spoofing, not an on-path network
 attacker. Gameplay encryption is a future protocol revision, not an implied
 property of this handshake.
 
+## Reliable delivery boundary
+
+`BtgaNetSendQueue` tracks at most 32 outstanding reliable sequences, matching
+the header's ACK bitmap. It stores timestamps, attempt counts and an opaque
+application tag—not packet bytes. Ports retain packet buffers in their own
+fixed pools, release them when ACK processing returns the tag, resend the same
+bytes when polling returns `BTGA_NET_RETRY_READY`, and terminate or degrade the
+peer when it returns `BTGA_NET_RETRY_EXPIRED`. Time inputs are unsigned
+monotonic milliseconds supplied by the platform adapter.
+
 ## Topology
 
 The first production topology is host-authoritative:
