@@ -96,6 +96,36 @@ It scales to zero, keeps no lobby state in process memory, and stores only
 bounded discovery metadata in Azure Table Storage. Gameplay packets never
 traverse the master service.
 
+## Explicit opt-in and match flow
+
+Offline play is the default. A port must not open a socket, resolve the master
+hostname, issue an HTTPS request, advertise a lobby or send a heartbeat until
+the player explicitly enters **Online Multiplayer**. Leaving the online flow
+tears down its network session. Campaign and local split-screen remain usable
+without network permission or connectivity.
+
+Admission completes before game selection begins. The host then owns this
+ordered flow:
+
+1. Broadcast the lobby roster, match mode, map and rules.
+2. Enter a synchronized tank/loadout selection phase.
+3. Accept one selection and ready state for each assigned player slot.
+4. Lock the roster and broadcast the validated selections, random seed,
+   initial simulation tick and load command.
+5. Start only after every admitted peer reports that loading completed.
+
+Normal online play gives each device one full-screen local camera. Remote
+players are ordinary tanks in the shared world, not additional viewports.
+Split-screen is used only when a future port explicitly admits multiple local
+players from the same device; that device alone renders those local cameras.
+
+The recovered retail simulation remains the initial four-player authority.
+The host maps every admitted peer to one of its controller/player slots and
+never trusts a packet-supplied player ID. Input lockstep may be used only as an
+instrumented same-build milestone. Cross-architecture release requires a
+host-authoritative state/snapshot boundary because PC, ARM and PowerPC
+floating-point execution must not be presumed deterministic.
+
 ## Platform adapters
 
 The common client will use application-provided callbacks for HTTPS, UDP,

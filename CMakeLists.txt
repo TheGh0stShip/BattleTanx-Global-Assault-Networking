@@ -12,6 +12,7 @@ add_library(btga_net_protocol STATIC
     protocol/src/btga_handshake.c
     protocol/src/btga_net.c
     protocol/src/btga_reliability.c
+    protocol/src/btga_session.c
     protocol/src/btga_transport.c)
 add_library(BattleTanxGA::NetProtocol ALIAS btga_net_protocol)
 target_include_directories(btga_net_protocol PUBLIC
@@ -116,4 +117,13 @@ if(BTGA_NET_BUILD_TESTS)
         target_compile_options(btga_net_session_flow_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME session_flow_conformance COMMAND btga_net_session_flow_tests)
+
+    add_executable(btga_net_session_state_tests tests/session_state_tests.c)
+    target_link_libraries(btga_net_session_state_tests PRIVATE btga_net_protocol)
+    if(MSVC)
+        target_compile_options(btga_net_session_state_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(btga_net_session_state_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME session_state_machine COMMAND btga_net_session_state_tests)
 endif()

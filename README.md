@@ -16,6 +16,7 @@ or individual game port.
 - Wrap-safe sequence/acknowledgement window with duplicate suppression
 - Socket-free endpoint codec with per-peer replay filtering and session checks
 - Allocation-free direct-UDP admission payload codecs
+- Allocation-free client/host admission state machines
 - Fixed-capacity reliable-send tracking with ACK release and retry expiry
 - Endian-stable batches of original N64 controller input by simulation tick
 - Sixteen protocol peer slots reserved
@@ -23,6 +24,8 @@ or individual game port.
 - Direct UDP is the first gameplay path
 - Azure lobby/discovery core and Node 22 Functions adapter
 - Paid UDP relay is deliberately deferred until direct gameplay works
+- Networking is dormant until a player explicitly enters Online Multiplayer
+- Network matches use one full-screen local camera per device by default
 
 The production discovery API is available at
 [`https://btga.thegh0stship.com/api/v1`](https://btga.thegh0stship.com/api/v1/health).
