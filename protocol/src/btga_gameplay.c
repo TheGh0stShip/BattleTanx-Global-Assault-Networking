@@ -118,13 +118,18 @@ size_t btga_net_encode_authoritative_frame(
     if (destination == NULL || frame == NULL ||
         destination_size < BTGA_NET_AUTHORITY_FRAME_SIZE ||
         frame->occupied_mask == 0U || (frame->occupied_mask & 0xF0U) != 0U ||
-        (frame->received_mask & (uint8_t)~frame->occupied_mask) != 0U) return 0U;
+        (frame->connected_mask & (uint8_t)~frame->occupied_mask) != 0U ||
+        (frame->received_mask & (uint8_t)~frame->connected_mask) != 0U) return 0U;
     destination[0] = BTGA_NET_AUTHORITY_FRAME_VERSION;
     destination[1] = BTGA_NET_AUTHORITY_FRAME_TYPE;
     destination[2] = frame->occupied_mask;
-    destination[3] = frame->received_mask;
-    put_u32(destination + 4, frame->tick);
-    put_u64(destination + 8, frame->state_digest);
+    destination[3] = frame->connected_mask;
+    destination[4] = frame->received_mask;
+    destination[5] = 0U;
+    destination[6] = 0U;
+    destination[7] = 0U;
+    put_u32(destination + 8, frame->tick);
+    put_u64(destination + 12, frame->state_digest);
     for (index = 0U; index < BTGA_NET_AUTHORITY_PLAYER_LIMIT; ++index) {
         uint8_t* output = destination + BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE +
                           index * BTGA_NET_INPUT_FRAME_SIZE;
@@ -148,11 +153,14 @@ int btga_net_decode_authoritative_frame(
         payload[0] != BTGA_NET_AUTHORITY_FRAME_VERSION ||
         payload[1] != BTGA_NET_AUTHORITY_FRAME_TYPE ||
         payload[2] == 0U || (payload[2] & 0xF0U) != 0U ||
-        (payload[3] & (uint8_t)~payload[2]) != 0U) return 0;
+        (payload[3] & (uint8_t)~payload[2]) != 0U ||
+        (payload[4] & (uint8_t)~payload[3]) != 0U ||
+        payload[5] != 0U || payload[6] != 0U || payload[7] != 0U) return 0;
     frame->occupied_mask = payload[2];
-    frame->received_mask = payload[3];
-    frame->tick = get_u32(payload + 4);
-    frame->state_digest = get_u64(payload + 8);
+    frame->connected_mask = payload[3];
+    frame->received_mask = payload[4];
+    frame->tick = get_u32(payload + 8);
+    frame->state_digest = get_u64(payload + 12);
     for (index = 0U; index < BTGA_NET_AUTHORITY_PLAYER_LIMIT; ++index) {
         const uint8_t* input = payload + BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE +
                                index * BTGA_NET_INPUT_FRAME_SIZE;

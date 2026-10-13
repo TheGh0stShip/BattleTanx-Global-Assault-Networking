@@ -72,7 +72,8 @@ int main(void) {
     }
     {
         static const uint8_t expected_authority[] = {
-            0x01, 0x02, 0x0F, 0x0B, 0x01, 0x02, 0x03, 0x04,
+            0x01, 0x02, 0x0F, 0x0F, 0x0B, 0x00, 0x00, 0x00,
+            0x01, 0x02, 0x03, 0x04,
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
             0x00, 0x01, 0xFE, 0x03, 0x00, 0x02, 0x04, 0xFB,
             0x80, 0x00, 0x80, 0x7F, 0x40, 0x00, 0x00, 0x00
@@ -82,6 +83,7 @@ int main(void) {
         frame.tick = UINT32_C(0x01020304);
         frame.state_digest = UINT64_C(0x1122334455667788);
         frame.occupied_mask = 0x0FU;
+        frame.connected_mask = 0x0FU;
         frame.received_mask = 0x0BU;
         frame.inputs[0] = (BtgaNetInputFrame){1U, -2, 3};
         frame.inputs[1] = (BtgaNetInputFrame){2U, 4, -5};
@@ -96,13 +98,14 @@ int main(void) {
         CHECK(decoded_frame.tick == frame.tick);
         CHECK(decoded_frame.state_digest == frame.state_digest);
         CHECK(decoded_frame.occupied_mask == frame.occupied_mask);
+        CHECK(decoded_frame.connected_mask == frame.connected_mask);
         CHECK(decoded_frame.received_mask == frame.received_mask);
         CHECK(memcmp(decoded_frame.inputs, frame.inputs,
                      sizeof(frame.inputs)) == 0);
-        payload[3] = 0x10U;
+        payload[4] = 0x10U;
         CHECK(!btga_net_decode_authoritative_frame(
             &decoded_frame, payload, encoded_size));
-        payload[3] = frame.received_mask;
+        payload[4] = frame.received_mask;
         payload[2] = 0U;
         CHECK(!btga_net_decode_authoritative_frame(
             &decoded_frame, payload, encoded_size));
