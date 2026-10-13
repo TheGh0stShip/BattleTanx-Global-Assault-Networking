@@ -35,6 +35,28 @@ runtime=$(az resource show \
     exit 1
 }
 
+# Keep the service inside its reviewed cost and concurrency envelope. This is
+# part of deployment rather than a portal-only setting so it cannot drift.
+az functionapp scale config set \
+    --resource-group "$resource_group" \
+    --name "$function_app" \
+    --maximum-instance-count 2 \
+    --trigger-type http \
+    --trigger-settings perInstanceConcurrency=8 \
+    --output none
+
+scale=$(az functionapp scale config show \
+    --resource-group "$resource_group" \
+    --name "$function_app" -o json)
+[ "$(printf '%s' "$scale" | jq -r .maximumInstanceCount)" = 2 ] || {
+    echo "refusing deployment: maximum instance count is not 2" >&2
+    exit 1
+}
+[ "$(printf '%s' "$scale" | jq -r '.triggers.http.perInstanceConcurrency')" = 8 ] || {
+    echo "refusing deployment: HTTP per-instance concurrency is not 8" >&2
+    exit 1
+}
+
 az functionapp deployment source config-zip \
     --resource-group "$resource_group" \
     --name "$function_app" \

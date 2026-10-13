@@ -37,6 +37,10 @@ node scripts/test-public-relay.js https://HOST/api/v1
 
 The package script runs unit tests and creates a source package. Azure performs
 the Linux remote build, avoiding host-architecture dependency mistakes.
+The deployment script also enforces the reviewed public-test scale envelope:
+at most two 512 MiB Function instances and eight concurrent HTTP requests per
+instance. Do not raise it without revisiting the $60/month cap and the
+per-instance read-limit analysis.
 The public relay smoke test creates a temporary lobby through the deployed
 master, binds two local UDP peers with its signed tokens, forwards one gameplay
 datagram through the public relay, and removes the temporary lobby.
