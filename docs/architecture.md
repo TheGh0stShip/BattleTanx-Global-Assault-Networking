@@ -158,9 +158,12 @@ the retail outer-loop mode/counter transition and before that tick's gameplay
 update. Established clients consume every canonical frame in order. If a frame
 is lost, they pause rather than predicting indefinitely and may fast-forward
 only from a newer complete authority snapshot. A snapshot for the client's
-current tick is confirmed byte-for-byte before it is allowed to replace live
-state. Ports must keep host-local handles (audio voices, renderer resources,
-native pointers) out of portable state.
+current tick is confirmed byte-for-byte when prediction agrees; when it does
+not, the complete snapshot replaces live portable state at that tick boundary.
+The current PC implementation sends a full checkpoint every five ticks while a
+delta-compressed representation is developed. Ports must keep host-local
+handles (audio voices, renderer resources, native pointers) out of portable
+state.
 
 An optional direct peer path may be researched later as a latency optimization,
 but it can never be required for joining. The supported baseline contains no
