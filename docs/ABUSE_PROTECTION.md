@@ -36,9 +36,10 @@ Addresses are normalized before use:
 
 | Scope | Key | Burst | Sustained | Charged | Purpose |
 |---|---|---|---|---|---|
-| `source` | address | 32 | 8/hour | lobby creation (attempt); join/resume (success only) | Seat-allocation budget per address |
+| `seat_source` | address | 32 | 16/hour | successful new seat joins | Seat-allocation budget per address; authenticated resume is exempt |
+| `create_source` | address | 8 | 24/hour | lobby creation attempt | Keeps one address from consuming the global creation budget |
 | `lobby_source` | lobby + address | 20 | 120/hour | every join/resume attempt | Throttles polling of one lobby |
-| `lobby` | lobby | 20 | 720/hour | successful join/resume | Bounds seat churn and writes to one lobby row |
+| `lobby` | lobby | 20 | 720/hour | successful new seat joins | Bounds seat churn and writes to one lobby row |
 | `auth_failure` | address | 10 | 20/hour | each rejected host secret, resume or join token | Credential guessing; once empty, all credential routes from that address get 429 |
 | `lobby_create` | global | 60 | 240/hour | lobby creation attempt | Bounds lobby-table growth |
 | `heartbeat` | lobby | 8 | 720/hour | successful (authenticated) heartbeat | Bounds authority writes; unauthenticated callers cannot drain it |
@@ -49,13 +50,15 @@ it succeeds. A household polling a full lobby therefore spends only its
 `lobby_source` throttle, never its allocation budget.
 
 **Four players behind one NAT.** One address can create a lobby, place four
-players, and let each resume several times within the bursts. The seat-level
-rule from b7fb200 (four unconfirmed seats per address) is unchanged.
+players, and let each resume without consuming another allocation token.
+Lobby creation, new seat allocation, and authenticated resume use distinct
+budgets, so repeatedly hosting cannot disable reconnect for a household. The
+seat-level rule from b7fb200 (four unconfirmed seats per address) is unchanged.
 
 **Monopolization threshold.** Holding all four seats of a lobby with
 unconfirmed reservations needs about 240 allocations per hour, because each
-lasts 60 s and can be taken over after 30 s. At 8 per hour per address, an
-attacker needs at least ~30 distinct IPv4 addresses or IPv6 `/64`s per
+lasts 60 s and can be taken over after 30 s. At 16 per hour per address, an
+attacker needs at least ~15 distinct IPv4 addresses or IPv6 `/64`s per
 targeted lobby. Below that, the stress test shows a household seated within
 30 minutes. Above it, the attacker can keep taking freed provisional seats
 until its per-address bursts run out. Confirmed seats are never reassigned at
@@ -70,16 +73,16 @@ because bucket keys use only the caller address and the lobby ID from the URL.
 ### Tuning
 
 Override any scope with `BTGA_RATE_LIMITS`, a JSON object such as
-`{"source":{"capacity":48,"perHour":12}}`. Values outside capacity 1–10000 or
+`{"seat_source":{"capacity":48,"perHour":24}}`. Values outside capacity 1–10000 or
 perHour (0, 360000] are rejected at startup; a limit cannot be disabled.
 
 - **Players see 429 when joining a busy lobby.** Raise `lobby_source` first.
-  Raise `source` only with care: the monopolization threshold falls in
-  proportion to `source.perHour`.
-- **Attackers churn provisional seats.** Lower `source.perHour`, or ask the
+  Raise `seat_source` only with care: the monopolization threshold falls in
+  proportion to `seat_source.perHour`.
+- **Attackers churn provisional seats.** Lower `seat_source.perHour`, or ask the
   host to keep `seat_mask` heartbeats flowing; confirmed seats are already
   protected.
-- **Event spikes.** Raise `lobby_create` temporarily.
+- **Event spikes.** Raise `create_source` and `lobby_create` temporarily.
 
 ## Storage and cost
 
@@ -87,7 +90,7 @@ perHour (0, 360000] are rejected at startup; a limit cannot be disabled.
   `BTGA_RATE_LIMIT_TABLE` (default
   `BtgaRateLimits`) in the existing `AzureWebJobsStorage` account. Each subject
   is HMAC-keyed into one of 4096 shards per scope, so the table can never
-  exceed 6 × 4096 = 24,576 rows of under 100 bytes each (under 3 MB). Read
+  exceed 7 × 4096 = 28,672 rows of under 100 bytes each (under 3 MB). Read
   buckets are local and do not create table rows. Rows
   hold no address, lobby ID or credential. Rows idle long enough to refill
   completely are purged opportunistically, at most 200 per scope per instance
@@ -137,7 +140,7 @@ the address or lobby ID. Rotating the secret rotates every pseudonym.
 
 | Event | Meaning | Alert when |
 |---|---|---|
-| `rate_limited` (by `scope`) | A request was refused | `source`/`lobby` refusals for one `lobby` pseudonym persist for more than 15 min (seat siege); total exceeds 10× baseline |
+| `rate_limited` (by `scope`) | A request was refused | `seat_source`/`lobby` refusals for one `lobby` pseudonym persist for more than 15 min (seat siege); total exceeds 10× baseline |
 | `auth_failure` (by `reason`) | A credential was rejected | More than 50 per hour from distinct sources (credential spraying) |
 | `rate_limit_store_degraded` | The table is unreachable; limits are per instance | Any occurrence lasting more than 5 min |
 | `rate_limit_contention` | Hot-bucket CAS exhaustion | Repeated bursts |

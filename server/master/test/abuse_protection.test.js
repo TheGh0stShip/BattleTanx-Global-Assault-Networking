@@ -87,15 +87,16 @@ test("only the forwarded entry appended by the Azure front end is trusted", () =
 for (const [name, makeStore] of STORES) {
     test(`${name}: burst is allowed, then refused with a bounded Retry-After`, async () => {
         const { limiter } = limiterFor(makeStore);
-        const { capacity, perHour } = DEFAULT_LIMITS.source;
+        const { capacity, perHour } = DEFAULT_LIMITS.seat_source;
         for (let i = 0; i < capacity; ++i) {
-            assert.equal((await limiter.consume("source", "203.0.113.1")).allowed, true, `#${i}`);
+            assert.equal((await limiter.consume("seat_source", "203.0.113.1")).allowed,
+                true, `#${i}`);
         }
-        const refused = await limiter.consume("source", "203.0.113.1");
+        const refused = await limiter.consume("seat_source", "203.0.113.1");
         assert.equal(refused.allowed, false);
         assert.equal(refused.retryAfter, Math.min(MAX_RETRY_AFTER_SECONDS, Math.ceil(3600 / perHour)));
         // Another subject is unaffected.
-        assert.equal((await limiter.consume("source", "203.0.113.2")).allowed, true);
+        assert.equal((await limiter.consume("seat_source", "203.0.113.2")).allowed, true);
     });
 
     test(`${name}: tokens refill at the sustained rate and cap at the burst`, async () => {
@@ -153,15 +154,15 @@ for (const [name, makeStore] of STORES) {
 
     test(`${name}: idle purge removes only fully refilled buckets`, async () => {
         const { clock, limiter, store } = limiterFor(makeStore);
-        await limiter.consume("source", "idle");
+        await limiter.consume("seat_source", "idle");
         clock.now += 60;
-        await limiter.consume("source", "busy");
+        await limiter.consume("seat_source", "busy");
         const size = () => (store.rows !== undefined ? store.rows.size : store.table.rows.size);
         assert.equal(size(), 2);
-        const { capacity, perHour } = DEFAULT_LIMITS.source;
+        const { capacity, perHour } = DEFAULT_LIMITS.seat_source;
         const fullAfter = (capacity * 3600) / perHour;
         // A cutoff just after "idle"'s write, before "busy"'s, removes only "idle".
-        const removed = await store.purgeIdle("source", (T0 + 30) * 1000, 100);
+        const removed = await store.purgeIdle("seat_source", (T0 + 30) * 1000, 100);
         assert.equal(removed, 1);
         assert.equal(size(), 1);
         // The automatic purge only runs on rows idle for a full refill.
@@ -203,7 +204,7 @@ test("a store with no fallback fails closed", async () => {
     const table = new FakeTableClient();
     table.failing = true;
     const limiter = new RateLimiter({ store: new AzureRateLimitStore(table), secretKey: KEY });
-    const result = await limiter.consume("source", "203.0.113.8");
+    const result = await limiter.consume("seat_source", "203.0.113.8");
     assert.equal(result.allowed, false);
     assert.ok(result.retryAfter >= 1);
 });
@@ -216,7 +217,7 @@ test("a hung store times out into the fallback instead of stalling requests", as
         fallback: localFallback(KEY)
     });
     const started = Date.now();
-    const result = await limiter.consume("source", "203.0.113.8");
+    const result = await limiter.consume("seat_source", "203.0.113.8");
     assert.ok(Date.now() - started < 150);
     assert.equal(result.degraded, true);
     assert.equal(result.allowed, true);
@@ -224,8 +225,10 @@ test("a hung store times out into the fallback instead of stalling requests", as
 
 test("limit overrides are validated and cannot disable a limit", () => {
     assert.deepEqual(parseLimits(undefined), parseLimits(""));
-    assert.equal(parseLimits('{"source":{"capacity":4,"perHour":2}}').source.capacity, 4);
-    for (const bad of ['{"source":{"capacity":0,"perHour":1}}', '{"source":{"capacity":5,"perHour":0}}',
+    assert.equal(parseLimits('{"seat_source":{"capacity":4,"perHour":2}}')
+        .seat_source.capacity, 4);
+    for (const bad of ['{"seat_source":{"capacity":0,"perHour":1}}',
+                       '{"seat_source":{"capacity":5,"perHour":0}}',
                        '{"nope":{"capacity":1,"perHour":1}}', '{"read":{"capacity":1e9,"perHour":1}}',
                        "[1]", "not json"]) {
         assert.throws(() => parseLimits(bad), undefined, bad);
@@ -471,10 +474,20 @@ test("public reads use the fast limiter while mutations remain durable", async (
     }, { lobbyId: "lobby-1" });
     await guard.recordSuccess(admitted.context);
     assert.deepEqual(calls.durable.map((call) => [call.scope, call.cost]), [
-        ["lobby_source", 1], ["source", 0], ["lobby", 0],
-        ["source", 1], ["lobby", 1]
+        ["lobby_source", 1], ["seat_source", 0], ["lobby", 0],
+        ["seat_source", 1], ["lobby", 1]
     ]);
     assert.equal(calls.fast.length, 2);
+
+    calls.durable.length = 0;
+    const resumed = await guard.admit("join", {
+        method: "POST", headers: request.headers,
+        body: { protocol: 1, build: "pc-v1", platform: "pc", resume_token: "token" }
+    }, { lobbyId: "lobby-1" });
+    await guard.recordSuccess(resumed.context);
+    assert.deepEqual(calls.durable.map((call) => [call.scope, call.cost]), [
+        ["auth_failure", 0], ["lobby_source", 1]
+    ]);
 });
 
 test("storage outage keeps the API available with per-instance limits", async () => {
@@ -632,7 +645,7 @@ test("stress: many attacking addresses cannot keep a household out; confirmed se
     const result = await siege(attackers, hours);
     // Seat allocations are bounded by the per-address budget, not by how hard
     // the attacker pushes.
-    const { capacity, perHour } = DEFAULT_LIMITS.source;
+    const { capacity, perHour } = DEFAULT_LIMITS.seat_source;
     assert.ok(result.attackerAllocations <= attackers * (capacity + perHour * hours),
         `attacker allocated ${result.attackerAllocations} seats`);
     assert.equal(result.evictionsOfConfirmed, 0, "a confirmed seat was reassigned");

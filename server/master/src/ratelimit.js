@@ -26,12 +26,14 @@ const PURGE_BATCH = 200;
 
 // capacity = burst size; perHour = sustained refill.
 const DEFAULT_LIMITS = Object.freeze({
-    // Seats (join or resume) successfully allocated to one address, plus its
-    // lobby creations. 32 lets a four-player household play several matches
-    // back to back; 8/hour (192/day) is the sustained budget. Holding all four
-    // seats of a lobby with unconfirmed reservations needs 240 allocations an
-    // hour, i.e. at least 30 distinct addresses (IPv4 or IPv6 /64).
-    source: Object.freeze({ capacity: 32, perHour: 8 }),
+    // New seats successfully allocated to one address. Resume is authenticated
+    // and reclaims an existing seat, so it does not consume this budget. The
+    // separate scope also prevents repeated lobby creation from disabling
+    // reconnect for every player behind the same NAT.
+    seat_source: Object.freeze({ capacity: 32, perHour: 16 }),
+    // Lobby creation by one address. This remains independent of seat joins so
+    // normal create/leave cycles cannot exhaust a household's join budget.
+    create_source: Object.freeze({ capacity: 8, perHour: 24 }),
     // Join and resume attempts per lobby per address, successful or not:
     // throttles polling while still letting four players behind one NAT join
     // and retry.

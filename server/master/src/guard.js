@@ -32,15 +32,15 @@ function policy(operation, req, source, lobbyId) {
     switch (operation) {
     case "lobbies":
         return req.method === "POST"
-            ? ["lobbies", [["source", source, "pre"], ["lobby_create", "global", "pre"]]]
+            ? ["lobbies", [["create_source", source, "pre"],
+                            ["lobby_create", "global", "pre"]]]
             : ["lobbies", [["read", source, "pre"]]];
     case "join":
         return isResume(req)
             ? ["resume", [["auth_failure", source, "check"],
-                          ["lobby_source", lobbySource, "pre"],
-                          ["source", source, "post"], ["lobby", lobby, "post"]]]
+                          ["lobby_source", lobbySource, "pre"]]]
             : ["join", [["lobby_source", lobbySource, "pre"],
-                        ["source", source, "post"], ["lobby", lobby, "post"]]];
+                        ["seat_source", source, "post"], ["lobby", lobby, "post"]]];
     case "heartbeat":
         // The per-lobby heartbeat budget is spent only by authenticated
         // heartbeats: anyone can name a lobby, and unauthenticated attempts
