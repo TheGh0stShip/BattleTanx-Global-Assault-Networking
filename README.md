@@ -30,7 +30,8 @@ or individual game port.
 - No UPnP, NAT-PMP or manual port forwarding is required
 - Networking is dormant until a player explicitly enters Online Multiplayer
 - The PC port has a pre-boot deterministic rendezvous, delayed frame inputs,
-  match-epoch snapshots, per-frame state digests, and bounded peer-loss waits
+  tick-entry recovery snapshots, per-frame state digests, readiness
+  retransmission, and fail-closed waits that never advance an untracked tick
 
 The live multiplayer dashboard is available at
 [`https://btga.thegh0stship.com/`](https://btga.thegh0stship.com/), with the

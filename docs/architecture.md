@@ -146,6 +146,22 @@ The production topology is dedicated-authority and relay-first:
 5. Clients send timestamped inputs only to the authority. The authority runs
    the canonical simulation and publishes state, digests and corrections.
 
+Readiness and future-input batches use UDP and therefore must be retransmitted.
+A client repeats its readiness batch at a bounded interval until the first
+canonical authority frame arrives. The authority never enters a translated
+simulation tick unless it has selected that tick's canonical input set; when
+input is late it waits at the tick boundary rather than allowing an untracked
+game update.
+
+Recovery snapshots describe state at entry to their advertised tick, after
+the retail outer-loop mode/counter transition and before that tick's gameplay
+update. Established clients consume every canonical frame in order. If a frame
+is lost, they pause rather than predicting indefinitely and may fast-forward
+only from a newer complete authority snapshot. A snapshot for the client's
+current tick is confirmed byte-for-byte before it is allowed to replace live
+state. Ports must keep host-local handles (audio voices, renderer resources,
+native pointers) out of portable state.
+
 An optional direct peer path may be researched later as a latency optimization,
 but it can never be required for joining. The supported baseline contains no
 UPnP or NAT-PMP implementation.
