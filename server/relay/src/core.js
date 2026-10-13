@@ -97,7 +97,8 @@ class RelayCore {
         }
 
         let session = this.sessions.get(key);
-        if (claims.role === "host") {
+        const authority = claims.role === "authority" || claims.role === "host";
+        if (authority) {
             if (session === undefined && this.sessions.size >= this.maxSessions) {
                 return [{ remote, packet: this.errorFor(envelope, "BUSY") }];
             }
@@ -105,11 +106,11 @@ class RelayCore {
                 session = { maxPlayers: claims.max_players, peers: new Map() };
                 this.sessions.set(key, session);
             } else {
-                const oldHost = session.peers.get(0);
-                if (oldHost !== undefined) {
+                const oldAuthority = session.peers.get(0);
+                if (oldAuthority !== undefined) {
                     session.peers.delete(0);
-                    this.endpoints.delete(oldHost.endpointKey);
-                    this.nonces.delete(oldHost.nonce);
+                    this.endpoints.delete(oldAuthority.endpointKey);
+                    this.nonces.delete(oldAuthority.nonce);
                 }
             }
         } else if (session === undefined || !session.peers.has(0)) {
@@ -118,17 +119,31 @@ class RelayCore {
 
         let slot = 0;
         if (claims.role === "client") {
-            for (slot = 1; slot <= session.maxPlayers && session.peers.has(slot); ++slot) {
-                // Slot zero is the authoritative simulation server. Player
-                // clients occupy 1..maxPlayers and map to game seats 0..3.
-            }
-            if (slot > session.maxPlayers) {
-                return [{ remote, packet: this.errorFor(envelope, "FULL") }];
+            if (claims.seat !== undefined) {
+                slot = claims.seat + 1;
+                const previous = session.peers.get(slot);
+                if (previous !== undefined) {
+                    // The master is the seat allocator. A newly signed token
+                    // for the same seat is therefore an authenticated resume,
+                    // and atomically replaces the stale network mapping.
+                    session.peers.delete(slot);
+                    this.endpoints.delete(previous.endpointKey);
+                    this.nonces.delete(previous.nonce);
+                }
+            } else {
+                // Compatibility for tokens issued before stable seat claims.
+                // New master-service tokens always carry a seat.
+                for (slot = 1; slot <= session.maxPlayers && session.peers.has(slot); ++slot) {
+                    // Slot zero is the authoritative simulation server.
+                }
+                if (slot > session.maxPlayers) {
+                    return [{ remote, packet: this.errorFor(envelope, "FULL") }];
+                }
             }
         }
         const peer = {
             slot,
-            role: claims.role,
+            role: authority ? "authority" : claims.role,
             nonce: claims.nonce,
             remote: { address: remote.address, port: remote.port, family: remote.family },
             endpointKey: remoteKey,
@@ -184,9 +199,9 @@ class RelayCore {
             if (envelope.destinationSlot !== 0) {
                 return [];
             }
-            const host = session.peers.get(0);
-            if (host !== undefined) {
-                destinations.push(host);
+            const authorityPeer = session.peers.get(0);
+            if (authorityPeer !== undefined) {
+                destinations.push(authorityPeer);
             }
         } else if (envelope.destinationSlot === BROADCAST_SLOT) {
             for (const [slot, peer] of session.peers) {

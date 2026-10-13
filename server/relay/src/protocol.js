@@ -13,6 +13,7 @@ const TYPE_BIND = 1;
 const TYPE_BOUND = 2;
 const TYPE_DATA = 3;
 const TYPE_ERROR = 4;
+const MAX_PLAYER_SEATS = 4;
 
 function decodeEnvelope(packet) {
     if (!Buffer.isBuffer(packet) || packet.length < HEADER_SIZE || packet.length > MAX_DATAGRAM) {
@@ -85,10 +86,14 @@ function verifyAdmissionToken(token, publicKey, nowSeconds) {
     const claims = JSON.parse(encodedClaims.toString("utf8"));
     if (
         claims.protocol !== 1 ||
-        (claims.role !== "host" && claims.role !== "client") ||
+        (claims.role !== "authority" && claims.role !== "host" && claims.role !== "client") ||
         !Number.isInteger(claims.expires) || claims.expires < nowSeconds ||
         typeof claims.nonce !== "string" || !/^[0-9a-f]{16}$/u.test(claims.nonce) ||
-        !Number.isInteger(claims.max_players) || claims.max_players < 1 || claims.max_players > 16
+        !Number.isInteger(claims.max_players) ||
+        claims.max_players < 1 || claims.max_players > MAX_PLAYER_SEATS ||
+        (claims.role === "client" && claims.seat !== undefined &&
+            (!Number.isInteger(claims.seat) || claims.seat < 0 ||
+             claims.seat >= claims.max_players))
     ) {
         throw new Error("invalid token claims");
     }
@@ -116,6 +121,7 @@ module.exports = {
     HEADER_SIZE,
     MAX_DATAGRAM,
     MAX_INNER_DATAGRAM,
+    MAX_PLAYER_SEATS,
     TYPE_BIND,
     TYPE_BOUND,
     TYPE_DATA,

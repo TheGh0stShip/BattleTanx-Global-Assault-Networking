@@ -53,7 +53,7 @@ async function credentials() {
     };
 }
 
-test("relay binds signed peers and enforces host topology", async () => {
+test("relay binds signed peers and enforces authority topology", async () => {
     const auth = await credentials();
     const core = new RelayCore(auth.publicKey, { clock: () => NOW });
     const host = remote(40000);
@@ -171,7 +171,7 @@ test("global egress bucket bounds authenticated relay traffic", async () => {
     assert.equal(core.metrics.forwarded, 0);
 });
 
-test("a refreshed signed host token can replace a changed NAT mapping", async () => {
+test("a refreshed signed authority token can replace a changed NAT mapping", async () => {
     const auth = await credentials();
     const core = new RelayCore(auth.publicKey, { clock: () => NOW });
     core.handle(encodeEnvelope(
@@ -183,7 +183,7 @@ test("a refreshed signed host token can replace a changed NAT mapping", async ()
     );
     const replacementToken = service.issueAdmissionToken({
         session: auth.sessionId.toString(16).padStart(16, "0"),
-        protocol: 1, role: "host", max_players: 4,
+        protocol: 1, role: "authority", max_players: 4,
         expires: NOW + 90, nonce: "0123456789abcdef"
     });
     const rebound = core.handle(encodeEnvelope(
@@ -192,6 +192,72 @@ test("a refreshed signed host token can replace a changed NAT mapping", async ()
     assert.equal(decodeEnvelope(rebound[0].packet).sourceSlot, 0);
     assert.equal(core.endpoints.has("IPv4|127.0.0.1|42000"), false);
     assert.equal(core.endpoints.has("IPv4|127.0.0.1|42001"), true);
+});
+
+test("a fresh signed token resumes the same stable player seat", async () => {
+    const auth = await credentials();
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
+    const authority = remote(42100);
+    core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
+    ), authority);
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null,
+        auth.privateKey
+    );
+    const token = (nonce) => service.issueAdmissionToken({
+        session: auth.sessionId.toString(16).padStart(16, "0"),
+        protocol: 1, role: "client", seat: 2, max_players: 4,
+        expires: NOW + 90, nonce
+    });
+    const oldRemote = remote(42101);
+    let result = core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0,
+        Buffer.from(token("1111111111111111"))
+    ), oldRemote);
+    assert.equal(decodeEnvelope(result[0].packet).sourceSlot, 3);
+
+    const newRemote = remote(42102);
+    result = core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0,
+        Buffer.from(token("2222222222222222"))
+    ), newRemote);
+    assert.equal(decodeEnvelope(result[0].packet).sourceSlot, 3);
+    assert.equal(core.endpoints.has("IPv4|127.0.0.1|42101"), false);
+    assert.equal(core.endpoints.has("IPv4|127.0.0.1|42102"), true);
+
+    const gameplay = innerDatagram(auth.sessionId, 3);
+    assert.equal(core.handle(
+        encodeEnvelope(TYPE_DATA, auth.sessionId, 3, 0, gameplay), oldRemote
+    ).length, 0);
+    result = core.handle(
+        encodeEnvelope(TYPE_DATA, auth.sessionId, 3, 0, gameplay), newRemote
+    );
+    assert.equal(result.length, 1);
+    assert.deepEqual(result[0].remote, authority);
+});
+
+test("seat claims outside the four-player session are rejected", async () => {
+    const auth = await credentials();
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
+    core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
+    ), remote(42200));
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null,
+        auth.privateKey
+    );
+    for (const seat of [-1, 4]) {
+        const token = service.issueAdmissionToken({
+            session: auth.sessionId.toString(16).padStart(16, "0"),
+            protocol: 1, role: "client", seat, max_players: 4,
+            expires: NOW + 90,
+            nonce: (seat + 2).toString(16).padStart(16, "0")
+        });
+        assert.deepEqual(core.handle(encodeEnvelope(
+            TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(token)
+        ), remote(42210 + seat)), []);
+    }
 });
 
 function bindSocket(socket) {

@@ -4,7 +4,7 @@ const crypto = require("node:crypto");
 const net = require("node:net");
 
 const PROTOCOL_VERSION = 1;
-const MAX_PLAYERS = 16;
+const MAX_PLAYERS = 4;
 const LOBBY_TTL_SECONDS = 90;
 const JOIN_TOKEN_TTL_SECONDS = 30;
 const MAX_NAME_LENGTH = 48;
@@ -108,18 +108,23 @@ class MasterService {
         return `${encoded}.${signature}`;
     }
 
-    issueHostRelayToken(lobby) {
+    issueAuthorityRelayToken(lobby) {
         return this.issueAdmissionToken({
             lobby: lobby.id,
             session: lobby.session_id,
             protocol: lobby.protocol,
             build: lobby.build,
             platform: lobby.platform,
-            role: "host",
+            role: "authority",
             max_players: lobby.max_players,
             expires: lobby.expires_at,
             nonce: crypto.randomBytes(8).toString("hex")
         });
+    }
+
+    // Compatibility alias for callers migrating from the peer-host design.
+    issueHostRelayToken(lobby) {
+        return this.issueAuthorityRelayToken(lobby);
     }
 
     secretHash(lobbyId, secret) {
@@ -197,7 +202,7 @@ class MasterService {
             host_secret: hostSecret,
             session_id: lobby.session_id,
             relay: this.relayEndpoint,
-            relay_token: this.issueHostRelayToken(lobby)
+            relay_token: this.issueAuthorityRelayToken(lobby)
         };
     }
 
@@ -261,7 +266,7 @@ class MasterService {
         await this.store.put(lobby);
         return {
             ...MasterService.publicLobby(lobby),
-            relay_token: this.issueHostRelayToken(lobby)
+            relay_token: this.issueAuthorityRelayToken(lobby)
         };
     }
 
