@@ -86,6 +86,48 @@ test("relay binds signed peers and enforces host topology", async () => {
     ), []);
 });
 
+test("authority slot zero admits four independent player clients", async () => {
+    const auth = await credentials();
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
+    const host = remote(40500);
+    let result = core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
+    ), host);
+    assert.equal(decodeEnvelope(result[0].packet).sourceSlot, 0);
+
+    for (let player = 0; player < 4; ++player) {
+        const service = new MasterService(
+            new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null,
+            auth.privateKey
+        );
+        const token = service.issueAdmissionToken({
+            session: auth.sessionId.toString(16).padStart(16, "0"),
+            protocol: 1, role: "client", max_players: 4,
+            expires: NOW + 90, nonce: player.toString(16).padStart(16, "0")
+        });
+        result = core.handle(encodeEnvelope(
+            TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(token)
+        ), remote(40501 + player));
+        assert.equal(decodeEnvelope(result[0].packet).type, TYPE_BOUND);
+        assert.equal(decodeEnvelope(result[0].packet).sourceSlot, player + 1);
+    }
+
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null,
+        auth.privateKey
+    );
+    const overflowToken = service.issueAdmissionToken({
+        session: auth.sessionId.toString(16).padStart(16, "0"),
+        protocol: 1, role: "client", max_players: 4,
+        expires: NOW + 90, nonce: "ffffffffffffffff"
+    });
+    result = core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(overflowToken)
+    ), remote(40505));
+    assert.equal(decodeEnvelope(result[0].packet).type, TYPE_ERROR);
+    assert.equal(decodeEnvelope(result[0].packet).payload.toString("ascii"), "FULL");
+});
+
 test("invalid and replayed admission tokens cannot redirect traffic", async () => {
     const auth = await credentials();
     const core = new RelayCore(auth.publicKey, { clock: () => NOW });

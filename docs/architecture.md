@@ -28,8 +28,11 @@ and forwards only within the token's session.
 
 The relay envelope is fixed-width, big-endian and capped at 1224 bytes: a
 24-byte relay header around one complete, at-most-1200-byte gameplay datagram.
-Clients can address only slot 0 (the host). Only slot 0 can address a client or
-broadcast. The relay verifies the inner protocol version, session ID, length and
+Relay slot 0 is reserved for the authoritative simulation server. A lobby's
+`max_players` counts playable seats, so four-player play binds clients at relay
+slots 1 through 4 and maps them to game seats 0 through 3. Clients can address
+only authority slot 0. Only slot 0 can address a client or broadcast. The relay
+verifies the inner protocol version, session ID, length and
 `BTGA_NET_FLAG_RELAYED` flag before forwarding it unchanged. Invalid admission
 tokens receive no response, preventing an unauthenticated reflection oracle.
 
@@ -134,22 +137,23 @@ then carries the host's locked loading snapshot back to the guest.
 
 ## Topology
 
-The first production topology is host-authoritative and relay-first:
+The production topology is dedicated-authority and relay-first:
 
-1. A host registers a lobby with the Azure master over HTTPS.
-2. The master stores bounded metadata and issues a signed relay credential.
+1. The master allocates a headless simulation session and registers its lobby.
+2. The authority binds relay slot 0 using a short-lived server credential.
 3. Compatible clients discover or join the lobby over HTTPS.
-4. Every peer binds an outbound UDP mapping to the public relay.
-5. Clients send only to the host's relay slot; the host validates and
-   redistributes authoritative match traffic.
+4. Up to four clients bind outbound UDP mappings at relay slots 1 through 4.
+5. Clients send timestamped inputs only to the authority. The authority runs
+   the canonical simulation and publishes state, digests and corrections.
 
 An optional direct peer path may be researched later as a latency optimization,
 but it can never be required for joining. The supported baseline contains no
 UPnP or NAT-PMP implementation.
 
-The master is not a simulation server. It does not receive world snapshots or
-inputs. This makes scale-to-zero control-plane hosting practical and keeps the
-gameplay latency path independent of Azure.
+The master remains control-plane only and does not receive world snapshots or
+inputs. A separately deployed headless game server owns each active simulation;
+this keeps lobby discovery scale-to-zero while giving gameplay one canonical
+oracle independent of any player's process.
 
 The master generates a cryptographically random 64-bit gameplay session ID at
 registration. It returns the ID to the host, omits it from lobby listings,
@@ -186,12 +190,13 @@ players are ordinary tanks in the shared world, not additional viewports.
 Split-screen is used only when a future port explicitly admits multiple local
 players from the same device; that device alone renders those local cameras.
 
-The recovered retail simulation remains the initial four-player authority.
-The host maps every admitted peer to one of its controller/player slots and
-never trusts a packet-supplied player ID. Input lockstep may be used only as an
-instrumented same-build milestone. Cross-architecture release requires a
-host-authoritative state/snapshot boundary because PC, ARM and PowerPC
-floating-point execution must not be presumed deterministic.
+The recovered retail simulation remains the initial four-player authority, but
+it runs in the dedicated headless process rather than in a player's client.
+The server maps authenticated relay slots 1..4 to controller/player slots 0..3
+and never trusts a packet-supplied player ID. Clients may predict locally, but
+server snapshots and replay corrections are canonical. Cross-architecture
+release requires this boundary because PC, ARM and PowerPC floating-point
+execution must not be presumed deterministic.
 
 ## Platform adapters
 

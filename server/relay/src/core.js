@@ -118,10 +118,11 @@ class RelayCore {
 
         let slot = 0;
         if (claims.role === "client") {
-            for (slot = 1; slot < session.maxPlayers && session.peers.has(slot); ++slot) {
-                // Find the first bounded free relay slot.
+            for (slot = 1; slot <= session.maxPlayers && session.peers.has(slot); ++slot) {
+                // Slot zero is the authoritative simulation server. Player
+                // clients occupy 1..maxPlayers and map to game seats 0..3.
             }
-            if (slot >= session.maxPlayers) {
+            if (slot > session.maxPlayers) {
                 return [{ remote, packet: this.errorFor(envelope, "FULL") }];
             }
         }

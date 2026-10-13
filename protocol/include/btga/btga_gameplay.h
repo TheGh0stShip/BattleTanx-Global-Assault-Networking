@@ -14,6 +14,13 @@ extern "C" {
 #define BTGA_NET_FRAME_SYNC_VERSION 1U
 #define BTGA_NET_FRAME_SYNC_TYPE 1U
 #define BTGA_NET_FRAME_SYNC_SIZE 12U
+#define BTGA_NET_AUTHORITY_PLAYER_LIMIT 4U
+#define BTGA_NET_AUTHORITY_FRAME_VERSION 1U
+#define BTGA_NET_AUTHORITY_FRAME_TYPE 2U
+#define BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE 16U
+#define BTGA_NET_AUTHORITY_FRAME_SIZE \
+    (BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE + \
+     BTGA_NET_AUTHORITY_PLAYER_LIMIT * BTGA_NET_INPUT_FRAME_SIZE)
 
 typedef struct BtgaNetInputFrame {
     uint16_t buttons;
@@ -34,6 +41,17 @@ typedef struct BtgaNetFrameSync {
     uint32_t state_checksum;
 } BtgaNetFrameSync;
 
+/* Canonical result of one server simulation tick. The received mask says
+ * which seats supplied that tick on time; predicted seats used their last
+ * accepted input. Unoccupied seats must be zero in both masks and inputs. */
+typedef struct BtgaNetAuthoritativeFrame {
+    uint32_t tick;
+    uint64_t state_digest;
+    uint8_t occupied_mask;
+    uint8_t received_mask;
+    BtgaNetInputFrame inputs[BTGA_NET_AUTHORITY_PLAYER_LIMIT];
+} BtgaNetAuthoritativeFrame;
+
 size_t btga_net_encode_input_batch(uint8_t* destination,
                                    size_t destination_size,
                                    const BtgaNetInputBatch* batch);
@@ -46,6 +64,12 @@ size_t btga_net_encode_frame_sync(uint8_t* destination,
 int btga_net_decode_frame_sync(BtgaNetFrameSync* sync,
                                const uint8_t* payload,
                                size_t payload_size);
+size_t btga_net_encode_authoritative_frame(
+    uint8_t* destination, size_t destination_size,
+    const BtgaNetAuthoritativeFrame* frame);
+int btga_net_decode_authoritative_frame(
+    BtgaNetAuthoritativeFrame* frame, const uint8_t* payload,
+    size_t payload_size);
 
 #ifdef __cplusplus
 }
