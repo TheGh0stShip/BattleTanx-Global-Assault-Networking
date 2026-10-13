@@ -166,3 +166,65 @@ int btga_net_decode_authoritative_frame(
     }
     return 1;
 }
+
+size_t btga_net_encode_snapshot_chunk(
+    uint8_t* destination, size_t destination_size,
+    const BtgaNetSnapshotChunk* chunk) {
+    size_t encoded_size;
+    if (destination == NULL || chunk == NULL || chunk->data == NULL ||
+        chunk->data_size == 0U ||
+        chunk->data_size > BTGA_NET_SNAPSHOT_CHUNK_DATA_LIMIT ||
+        chunk->total_size == 0U || chunk->offset >= chunk->total_size ||
+        (uint64_t)chunk->offset + chunk->data_size > chunk->total_size) return 0U;
+    encoded_size = BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE + chunk->data_size;
+    if (destination_size < encoded_size) return 0U;
+    destination[0] = BTGA_NET_SNAPSHOT_CHUNK_VERSION;
+    destination[1] = BTGA_NET_SNAPSHOT_CHUNK_TYPE;
+    destination[2] = 0U;
+    destination[3] = 0U;
+    put_u32(destination + 4, chunk->snapshot_id);
+    put_u32(destination + 8, chunk->tick);
+    put_u64(destination + 12, chunk->state_digest);
+    put_u32(destination + 20, chunk->total_size);
+    put_u32(destination + 24, chunk->offset);
+    put_u16(destination + 28, chunk->data_size);
+    destination[30] = 0U;
+    destination[31] = 0U;
+    {
+        size_t index;
+        for (index = 0U; index < chunk->data_size; ++index) {
+            destination[BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE + index] =
+                chunk->data[index];
+        }
+    }
+    return encoded_size;
+}
+
+int btga_net_decode_snapshot_chunk(
+    BtgaNetSnapshotChunk* chunk, const uint8_t* payload,
+    size_t payload_size) {
+    uint16_t data_size;
+    uint32_t total_size;
+    uint32_t offset;
+    if (chunk == NULL || payload == NULL ||
+        payload_size < BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE ||
+        payload[0] != BTGA_NET_SNAPSHOT_CHUNK_VERSION ||
+        payload[1] != BTGA_NET_SNAPSHOT_CHUNK_TYPE ||
+        payload[2] != 0U || payload[3] != 0U ||
+        payload[30] != 0U || payload[31] != 0U) return 0;
+    total_size = get_u32(payload + 20);
+    offset = get_u32(payload + 24);
+    data_size = get_u16(payload + 28);
+    if (data_size == 0U || data_size > BTGA_NET_SNAPSHOT_CHUNK_DATA_LIMIT ||
+        payload_size != BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE + data_size ||
+        total_size == 0U || offset >= total_size ||
+        (uint64_t)offset + data_size > total_size) return 0;
+    chunk->snapshot_id = get_u32(payload + 4);
+    chunk->tick = get_u32(payload + 8);
+    chunk->state_digest = get_u64(payload + 12);
+    chunk->total_size = total_size;
+    chunk->offset = offset;
+    chunk->data_size = data_size;
+    chunk->data = payload + BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE;
+    return 1;
+}

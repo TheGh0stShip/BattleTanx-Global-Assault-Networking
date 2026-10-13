@@ -21,6 +21,11 @@ extern "C" {
 #define BTGA_NET_AUTHORITY_FRAME_SIZE \
     (BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE + \
      BTGA_NET_AUTHORITY_PLAYER_LIMIT * BTGA_NET_INPUT_FRAME_SIZE)
+#define BTGA_NET_SNAPSHOT_CHUNK_VERSION 1U
+#define BTGA_NET_SNAPSHOT_CHUNK_TYPE 3U
+#define BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE 32U
+#define BTGA_NET_SNAPSHOT_CHUNK_DATA_LIMIT \
+    (BTGA_NET_MAX_PAYLOAD_SIZE - BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE)
 
 typedef struct BtgaNetInputFrame {
     uint16_t buttons;
@@ -52,6 +57,19 @@ typedef struct BtgaNetAuthoritativeFrame {
     BtgaNetInputFrame inputs[BTGA_NET_AUTHORITY_PLAYER_LIMIT];
 } BtgaNetAuthoritativeFrame;
 
+/* A full canonical server state is split across reliable snapshot chunks.
+ * data points into the decoded packet and is valid only while that packet is
+ * retained by the caller. Chunks may arrive out of order. */
+typedef struct BtgaNetSnapshotChunk {
+    uint32_t snapshot_id;
+    uint32_t tick;
+    uint64_t state_digest;
+    uint32_t total_size;
+    uint32_t offset;
+    uint16_t data_size;
+    const uint8_t* data;
+} BtgaNetSnapshotChunk;
+
 size_t btga_net_encode_input_batch(uint8_t* destination,
                                    size_t destination_size,
                                    const BtgaNetInputBatch* batch);
@@ -69,6 +87,12 @@ size_t btga_net_encode_authoritative_frame(
     const BtgaNetAuthoritativeFrame* frame);
 int btga_net_decode_authoritative_frame(
     BtgaNetAuthoritativeFrame* frame, const uint8_t* payload,
+    size_t payload_size);
+size_t btga_net_encode_snapshot_chunk(
+    uint8_t* destination, size_t destination_size,
+    const BtgaNetSnapshotChunk* chunk);
+int btga_net_decode_snapshot_chunk(
+    BtgaNetSnapshotChunk* chunk, const uint8_t* payload,
     size_t payload_size);
 
 #ifdef __cplusplus

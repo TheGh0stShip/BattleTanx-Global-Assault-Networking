@@ -107,5 +107,40 @@ int main(void) {
         CHECK(!btga_net_decode_authoritative_frame(
             &decoded_frame, payload, encoded_size));
     }
+    {
+        static const uint8_t bytes[] = {0x10, 0x20, 0x30, 0x40, 0x50};
+        BtgaNetSnapshotChunk chunk = {
+            UINT32_C(0x10203040), UINT32_C(0x50607080),
+            UINT64_C(0x1122334455667788), 9U, 4U, 5U, bytes
+        };
+        BtgaNetSnapshotChunk decoded_chunk = {0};
+        encoded_size = btga_net_encode_snapshot_chunk(
+            payload, sizeof(payload), &chunk);
+        CHECK(encoded_size == BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE + sizeof(bytes));
+        CHECK(payload[0] == 1U && payload[1] == 3U);
+        CHECK(payload[4] == 0x10U && payload[7] == 0x40U);
+        CHECK(payload[20] == 0U && payload[23] == 9U);
+        CHECK(payload[24] == 0U && payload[27] == 4U);
+        CHECK(payload[28] == 0U && payload[29] == sizeof(bytes));
+        CHECK(memcmp(payload + BTGA_NET_SNAPSHOT_CHUNK_HEADER_SIZE,
+                     bytes, sizeof(bytes)) == 0);
+        CHECK(btga_net_decode_snapshot_chunk(
+            &decoded_chunk, payload, encoded_size));
+        CHECK(decoded_chunk.snapshot_id == chunk.snapshot_id);
+        CHECK(decoded_chunk.tick == chunk.tick);
+        CHECK(decoded_chunk.state_digest == chunk.state_digest);
+        CHECK(decoded_chunk.total_size == 9U && decoded_chunk.offset == 4U);
+        CHECK(decoded_chunk.data_size == sizeof(bytes));
+        CHECK(memcmp(decoded_chunk.data, bytes, sizeof(bytes)) == 0);
+        payload[30] = 1U;
+        CHECK(!btga_net_decode_snapshot_chunk(
+            &decoded_chunk, payload, encoded_size));
+        payload[30] = 0U;
+        CHECK(!btga_net_decode_snapshot_chunk(
+            &decoded_chunk, payload, encoded_size - 1U));
+        chunk.offset = 5U;
+        CHECK(btga_net_encode_snapshot_chunk(
+            payload, sizeof(payload), &chunk) == 0U);
+    }
     return 0;
 }
