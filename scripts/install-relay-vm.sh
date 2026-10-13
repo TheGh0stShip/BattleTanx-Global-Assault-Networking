@@ -88,7 +88,11 @@ install -o root -g root -m 644 "$unit_file" /etc/systemd/system/btga-relay.servi
 rm -f "$unit_file"
 
 systemctl daemon-reload
-systemctl enable --now btga-relay.service
+systemctl enable btga-relay.service
+# `enable --now` does not restart an already active unit after rebuilding its
+# Docker image. Always restart so a successful provision actually runs the
+# reviewed commit rather than silently retaining the previous container.
+systemctl restart btga-relay.service
 systemctl --no-pager --full status btga-relay.service
 
 echo "Relay installed. Verify UDP ${relay_port} is listening with: ss -lun"
