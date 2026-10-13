@@ -2,9 +2,96 @@
 
 const net = require("node:net");
 const { BUILD_PATTERN, MasterError, MasterService, PROTOCOL_VERSION } = require("./core");
-const { AzureLobbyStore } = require("./store");
+const { AzureLobbyStore, AzureRateLimitStore } = require("./store");
+const { stripPort, trustedSource } = require("./address");
+const { RequestGuard } = require("./guard");
+const { RateLimiter, MemoryRateStore, localFallback, parseLimits } = require("./ratelimit");
+const { SecurityLog } = require("./security_log");
 
 let servicePromise;
+let productionGuardInstance;
+const testGuards = new WeakMap();
+
+// Connects to the shared rate-limit table on first use and retries at most
+// once a minute after a failure. While it is unavailable every operation
+// throws, which the limiter treats as a degraded store (see ratelimit.js).
+class LazyRateStore {
+    constructor(connect) {
+        this.connect = connect;
+        this.store = null;
+        this.pending = null;
+        this.failedAt = -Infinity;
+    }
+
+    async ready() {
+        if (this.store !== null) return this.store;
+        if (Date.now() - this.failedAt < 60_000) throw new Error("rate store unavailable");
+        if (this.pending === null) {
+            this.pending = this.connect().then((store) => {
+                this.store = store;
+                return store;
+            }, (error) => {
+                this.failedAt = Date.now();
+                this.pending = null;
+                throw error;
+            });
+        }
+        return this.pending;
+    }
+
+    async get(...args) { return (await this.ready()).get(...args); }
+    async create(...args) { return (await this.ready()).create(...args); }
+    async replace(...args) { return (await this.ready()).replace(...args); }
+    async purgeIdle(...args) { return (await this.ready()).purgeIdle(...args); }
+}
+
+function trustedHopsSetting() {
+    const text = process.env.BTGA_TRUSTED_FORWARD_HOPS;
+    const value = text === undefined || text === "" ? 1 : Number(text);
+    if (!Number.isInteger(value) || value < 1 || value > 4) {
+        throw new Error("BTGA_TRUSTED_FORWARD_HOPS must be an integer from 1 to 4");
+    }
+    return value;
+}
+
+function productionGuard() {
+    if (productionGuardInstance === undefined) {
+        const connection = process.env.AzureWebJobsStorage;
+        const secret = process.env.BTGA_MASTER_SECRET;
+        if (!connection || !secret) {
+            throw new Error("required master-service settings are missing");
+        }
+        const key = Buffer.from(secret, "utf8");
+        const limits = parseLimits(process.env.BTGA_RATE_LIMITS);
+        const log = new SecurityLog(key);
+        const tableName = process.env.BTGA_RATE_LIMIT_TABLE || "BtgaRateLimits";
+        const limiter = new RateLimiter({
+            store: new LazyRateStore(() => AzureRateLimitStore.connect(connection, tableName)),
+            secretKey: key,
+            limits,
+            log,
+            fallback: localFallback(key, limits, undefined, log)
+        });
+        productionGuardInstance = new RequestGuard({ limiter, log, trustedHops: trustedHopsSetting() });
+    }
+    return productionGuardInstance;
+}
+
+// Callers that inject their own service (tests, local tools) get an isolated
+// in-memory guard per service factory, with production limits.
+function defaultGuard(serviceFactory) {
+    if (serviceFactory === productionService) return productionGuard();
+    let guard = testGuards.get(serviceFactory);
+    if (guard === undefined) {
+        const key = require("node:crypto").randomBytes(32);
+        guard = new RequestGuard({
+            limiter: new RateLimiter({ store: new MemoryRateStore(), secretKey: key }),
+            log: new SecurityLog(key, () => {})
+        });
+        testGuards.set(serviceFactory, guard);
+    }
+    return guard;
+}
 
 async function productionService() {
     if (servicePromise === undefined) {
@@ -70,8 +157,8 @@ function dashboardHtml(snapshot) {
     const rows = snapshot.sessions.length === 0
         ? '<tr><td colspan="6" class="empty">No active sessions. Start the PC port and host the first battle.</td></tr>'
         : snapshot.sessions.map((session) => `<tr>
-            <td>${escapeHtml(session.name)}</td><td><span class="state ${session.state}">${escapeHtml(session.state)}</span></td>
-            <td>${session.current_players} / ${session.max_players}</td><td>${escapeHtml(session.platform)}</td>
+            <td>${escapeHtml(session.name)}</td><td><span class="state ${session.state === "playing" ? "playing" : "lobby"}">${escapeHtml(session.state)}</span></td>
+            <td>${escapeHtml(session.current_players)} / ${escapeHtml(session.max_players)}</td><td>${escapeHtml(session.platform)}</td>
             <td>${escapeHtml(session.region)}</td><td>${escapeHtml(session.build)}</td>
         </tr>`).join("");
     const updated = new Date(snapshot.generated_at * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC");
@@ -122,76 +209,95 @@ function normalizeForwardedAddress(value) {
     return net.isIP(candidate) === 0 ? "" : candidate;
 }
 
-function observedIp(req) {
-    const forwarded = header(req, "x-forwarded-for") || "";
-    const candidates = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
-    if (candidates.length > 0) {
-        const candidate = normalizeForwardedAddress(candidates[candidates.length - 1]);
-        if (candidate) {
-            return candidate;
-        }
-    }
-    return normalizeForwardedAddress(header(req, "x-azure-clientip") || "");
+// The full caller address, used only for a host's optional legacy direct
+// endpoint. Only the entry appended by the Azure front end is trusted; see
+// address.js. Headers a caller can forge (X-Azure-ClientIP etc.) are ignored.
+function observedIp(req, trustedHops = 1) {
+    const forwarded = header(req, "x-forwarded-for");
+    if (typeof forwarded !== "string" || forwarded.length > 2048) return "";
+    const entries = forwarded.split(",").map((part) => part.trim());
+    if (entries.length < trustedHops || entries.length > 32) return "";
+    return stripPort(entries[entries.length - trustedHops]);
 }
 
-async function handle(operation, req, bindingData = {}, serviceFactory = productionService) {
+async function handle(operation, req, bindingData = {}, serviceFactory = productionService,
+                      guard = undefined) {
+    if (operation === "health") {
+        return response({ status: "ok", protocol: PROTOCOL_VERSION });
+    }
+    let admitted;
     try {
-        if (operation === "health") {
-            return response({ status: "ok", protocol: PROTOCOL_VERSION });
-        }
-        const service = await serviceFactory();
-        if (operation === "status") {
-            return response(await service.publicSnapshot());
-        }
-        if (operation === "dashboard") {
-            if (bindingData.path) {
-                return response({ error: "not_found", message: "route not found" }, 404);
-            }
-            return htmlResponse(dashboardHtml(await service.publicSnapshot()));
-        }
-        const lobbyId = bindingData.lobbyId;
-        if (operation === "lobbies") {
-            if (req.method === "POST") {
-                return response(await service.register(jsonBody(req), observedIp(req)), 201);
-            }
-            const protocol = Number(req.query && req.query.protocol);
-            const build = req.query && req.query.build;
-            if (!Number.isInteger(protocol) || protocol !== PROTOCOL_VERSION || !BUILD_PATTERN.test(build || "")) {
-                throw new MasterError(400, "invalid_field", "protocol or build is invalid");
-            }
-            return response({ lobbies: await service.listLobbies(protocol, build) });
-        }
-        if (operation === "heartbeat") {
-            const data = jsonBody(req);
-            return response(await service.heartbeat(
-                lobbyId, header(req, "authorization"), data.current_players, data.state,
-                data.seat_mask
-            ));
-        }
-        if (operation === "remove") {
-            await service.remove(lobbyId, header(req, "authorization"));
-            return { status: 204, body: "" };
-        }
-        if (operation === "join") {
-            return response(await service.join(
-                lobbyId, jsonBody(req), observedIp(req) || "unknown"));
-        }
-        if (operation === "validateJoin") {
-            const data = jsonBody(req);
-            if (typeof data.join_token !== "string" || data.join_token.length > 1024) {
-                throw new MasterError(400, "invalid_field", "join_token is invalid");
-            }
-            const claims = await service.validateJoinToken(
-                lobbyId,
-                header(req, "authorization"),
-                data.join_token
-            );
-            return response({ valid: true, claims });
-        }
-        throw new Error(`unknown operation: ${operation}`);
+        const activeGuard = guard || defaultGuard(serviceFactory);
+        admitted = await activeGuard.admit(operation, req, bindingData);
+        if (admitted.response !== null) return admitted.response;
+        return await dispatch(operation, req, bindingData, serviceFactory, activeGuard,
+            admitted.context);
     } catch (error) {
         return errorResponse(error);
     }
+}
+
+async function dispatch(operation, req, bindingData, serviceFactory, guard, context) {
+    try {
+        const result = await route(operation, req, bindingData, serviceFactory, guard);
+        await guard.recordSuccess(context);
+        return result;
+    } catch (error) {
+        await guard.recordFailure(context, error);
+        throw error;
+    }
+}
+
+async function route(operation, req, bindingData, serviceFactory, guard) {
+    const service = await serviceFactory();
+    if (operation === "status") {
+        return response(await service.publicSnapshot());
+    }
+    if (operation === "dashboard") {
+        if (bindingData.path) {
+            return response({ error: "not_found", message: "route not found" }, 404);
+        }
+        return htmlResponse(dashboardHtml(await service.publicSnapshot()));
+    }
+    const lobbyId = bindingData.lobbyId;
+    if (operation === "lobbies") {
+        if (req.method === "POST") {
+            return response(await service.register(jsonBody(req), observedIp(req, guard.trustedHops)), 201);
+        }
+        const protocol = Number(req.query && req.query.protocol);
+        const build = req.query && req.query.build;
+        if (!Number.isInteger(protocol) || protocol !== PROTOCOL_VERSION || !BUILD_PATTERN.test(build || "")) {
+            throw new MasterError(400, "invalid_field", "protocol or build is invalid");
+        }
+        return response({ lobbies: await service.listLobbies(protocol, build) });
+    }
+    if (operation === "heartbeat") {
+        const data = jsonBody(req);
+        return response(await service.heartbeat(
+            lobbyId, header(req, "authorization"), data.current_players, data.state,
+            data.seat_mask
+        ));
+    }
+    if (operation === "remove") {
+        await service.remove(lobbyId, header(req, "authorization"));
+        return { status: 204, body: "" };
+    }
+    if (operation === "join") {
+        return response(await service.join(lobbyId, jsonBody(req), guard.source(req)));
+    }
+    if (operation === "validateJoin") {
+        const data = jsonBody(req);
+        if (typeof data.join_token !== "string" || data.join_token.length > 1024) {
+            throw new MasterError(400, "invalid_field", "join_token is invalid");
+        }
+        const claims = await service.validateJoinToken(
+            lobbyId,
+            header(req, "authorization"),
+            data.join_token
+        );
+        return response({ valid: true, claims });
+    }
+    throw new Error(`unknown operation: ${operation}`);
 }
 
 function azureHandler(operation) {
@@ -208,5 +314,6 @@ module.exports = {
     normalizeForwardedAddress,
     observedIp,
     productionService,
-    response
+    response,
+    trustedSource
 };

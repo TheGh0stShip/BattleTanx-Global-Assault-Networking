@@ -18,6 +18,12 @@ cannot accept public UDP.
 - `BTGA_RELAY_HOST`: public DNS name of the separately deployed UDP relay.
 - `BTGA_RELAY_PORT`: public relay UDP port; defaults to `30420`.
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: optional bounded diagnostics.
+- `BTGA_RATE_LIMIT_TABLE`: optional rate-limit table; defaults to
+  `BtgaRateLimits` in the same storage account.
+- `BTGA_RATE_LIMITS`: optional JSON overrides for the abuse limits (see
+  [ABUSE_PROTECTION.md](ABUSE_PROTECTION.md)).
+- `BTGA_TRUSTED_FORWARD_HOPS`: trusted proxy layers in front of the Function
+  App; keep the default `1` unless a reviewed CDN or Front Door is added.
 
 The Function App runtime must be Node.js 22. The deployment script refuses to
 publish to any other runtime:
@@ -138,7 +144,9 @@ sudo ss -lun | grep ':30420'
 The complete control inventory and incident-response actions are in
 [SECURITY_CONTROLS.md](SECURITY_CONTROLS.md).
 
-- Keep `alwaysReady` empty and cap maximum scale-out conservatively.
+- Keep `alwaysReady` empty and cap maximum scale-out conservatively (1–2
+  instances for public testing). Rate-limited requests still execute, so the
+  instance cap, not the limiter, bounds flood-driven execution cost.
 - Keep the Log Analytics daily ingestion cap and retention limit explicit.
 - Keep relay deployment opt-in and cost-gated; local tests never create Azure
   resources.

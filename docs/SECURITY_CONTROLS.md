@@ -36,6 +36,16 @@ does not claim that an Internet service can be risk-free.
 
 ## Resource and abuse bounds
 
+- Public HTTP routes that allocate, extend or probe state are rate limited by
+  durable token buckets shared across Function instances: per address, per
+  lobby and address, per lobby, per address for credential failures, and
+  globally for lobby creation. Defaults, the storage and cost impact, and
+  tuning are in [ABUSE_PROTECTION.md](ABUSE_PROTECTION.md); threats and
+  residual risk are in [THREAT_MODEL.md](THREAT_MODEL.md).
+- Only the `X-Forwarded-For` entry appended by Azure's front end identifies a
+  caller. Client-settable address headers are ignored, and IPv6 callers are
+  grouped by `/64`.
+
 - Maximum advertised lobby size: 16 players.
 - Maximum relay sessions per process: 256 by default.
 - Idle peer mappings expire after 90 seconds.
@@ -76,6 +86,9 @@ does not claim that an Internet service can be risk-free.
   connection strings, complete packet payloads, or user-provided ROM data.
 - Operational metrics are aggregate counters: accepted bindings, forwarded
   datagrams, drops, and expirations.
+- Master security events (`type: "btga_security"`) contain only allow-listed
+  fields and keyed 12-digit pseudonyms. They never contain addresses, lobby
+  names or IDs, request bodies, tokens or secrets.
 - Container logs rotate locally at 10 MiB with three files. Longer retention or
   centralized collection requires an explicit privacy and cost review.
 
