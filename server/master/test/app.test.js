@@ -56,6 +56,33 @@ test("dashboard and status expose live public counts", async () => {
     assert.equal(missing.status, 404);
 });
 
+test("dashboard renders hostile lobby names only as escaped text", async () => {
+    const { service, factory } = setup();
+    const hostile = `<img onerror=x>&"'<script>x</script>`;
+    await service.register({
+        name: hostile, protocol: 1, build: "pc-v0.3.0", platform: "pc",
+        capabilities: 3, region: `us-<script>`, max_players: 4,
+        current_players: 1, state: "lobby"
+    }, "203.0.113.7");
+    const dashboard = await handle("dashboard", request("GET"), {}, factory);
+    assert.equal(dashboard.status, 200);
+    assert.doesNotMatch(dashboard.body, /<img|<script>/u);
+    assert.match(dashboard.body, /&lt;img onerror=x&gt;&amp;&quot;&#39;&lt;script&gt;x&lt;\/script&gt;/u);
+    assert.match(dashboard.body, /us-&lt;script&gt;/u);
+
+    const status = await handle("status", request("GET"), {}, factory);
+    assert.equal(JSON.parse(status.body).sessions[0].name, hostile);
+});
+
+test("lobby metadata rejects display-direction control characters", async () => {
+    const { service } = setup();
+    await assert.rejects(service.register({
+        name: "Safe\u202Eexe.jpg", protocol: 1, build: "pc-v0.3.0", platform: "pc",
+        capabilities: 3, region: "us-central", max_players: 4,
+        current_players: 1
+    }, "203.0.113.7"), /contains controls/u);
+});
+
 test("HTTP lifecycle registers, lists, joins, validates, and removes", async () => {
     const { factory } = setup();
     const registration = {

@@ -64,8 +64,9 @@ function text(data, name, maximum) {
     if (typeof source !== "string") {
         throw new MasterError(400, "invalid_field", `${name} must be text`);
     }
-    const value = source.trim();
-    if (!value || value.length > maximum || /[\x00-\x1f]/u.test(value)) {
+    const value = source.normalize("NFC").trim();
+    if (!value || value.length > maximum ||
+        /[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)) {
         throw new MasterError(
             400,
             "invalid_field",
