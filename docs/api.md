@@ -27,7 +27,7 @@ Table Storage and is suitable for deployment checks.
 | `platform` | `pc`, `vita`, `xbox`, `xbox360`, `ps3`, `ps4`, `ps5`, or `3ds` |
 | `capabilities` | unsigned 32-bit bit mask |
 | `region` | 1–24 printable characters |
-| `max_players` | 1–16; initial gameplay remains limited to four |
+| `max_players` | 1–4; the current authoritative simulation is four-player |
 | `current_players` | 1–`max_players` |
 | `state` | optional `lobby` (default) or `playing` |
 | `udp_port` | optional legacy direct-UDP port; omit for relay-only play |
@@ -57,14 +57,26 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
 
 ## Joining
 
-`POST /lobbies/{id}/join` accepts `protocol`, `build`, and `platform`. It
-returns the configured public `relay` endpoint, the same 16-character
-hexadecimal `session_id`, and an Ed25519-signed join token that expires
-after 30 seconds. A legacy direct `host` endpoint is returned only when the host
-explicitly advertised one; it is not required for relay play. The token is
-opaque to clients and also admits one outbound UDP mapping at the relay.
-`session_id` is bound into the token and converts exactly to the unsigned
-64-bit gameplay header field without depending on JSON number precision.
+`POST /lobbies/{id}/join` accepts `protocol`, `build`, and `platform`, plus an
+optional opaque `resume_token`. A new join atomically leases the lowest free
+seat. A valid resume credential rotates that lease and reclaims the same seat,
+including when all four seats are reserved. Concurrent joins use Azure Table
+ETag compare-and-swap; they cannot receive the same seat.
+
+The response returns `seat`, `resume_token`, the configured public `relay`
+endpoint, the same 16-character hexadecimal `session_id`, and a fresh
+Ed25519-signed join token that expires after 30 seconds. Seat leases last ten
+minutes. The resume credential has a longer signature expiry but is usable only
+while its exact current lease still exists; successful resume rotates the lease
+ID and immediately invalidates the old credential. Clients must replace their
+stored credential atomically and treat it as a bearer secret.
+
+A legacy direct `host` endpoint is returned only when the host explicitly
+advertised one; it is not required for relay play. Admission and resume tokens
+are opaque to clients. `session_id` is bound into both and converts exactly to
+the unsigned 64-bit gameplay header field without depending on JSON number
+precision. Invalid, expired, replayed, wrong-lobby, and wrong-session resume
+credentials fail closed.
 
 ## Relay data plane
 

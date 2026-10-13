@@ -77,6 +77,7 @@ async function main() {
     let hostSecret;
     const host = dgram.createSocket("udp4");
     const client = dgram.createSocket("udp4");
+    const resumedClient = dgram.createSocket("udp4");
     try {
         const registration = await request("/lobbies", {
             method: "POST",
@@ -101,6 +102,8 @@ async function main() {
         });
         assert.deepEqual(joined.relay, registration.relay);
         assert.equal(joined.session_id, registration.session_id);
+        assert.equal(joined.seat, 0);
+        assert.equal(typeof joined.resume_token, "string");
         assert.match(registration.relay.address, /^[A-Za-z0-9.-]+$/u);
 
         const relay = registration.relay;
@@ -127,10 +130,37 @@ async function main() {
         assert.equal(forwarded.type, TYPE_DATA);
         assert.equal(forwarded.sourceSlot, 1);
         assert.deepEqual(forwarded.payload, gameplay);
-        process.stdout.write(`public relay smoke test passed via ${relay.address}:${relay.udp_port}\n`);
+
+        const resumed = await request(`/lobbies/${lobbyId}/join`, {
+            method: "POST",
+            body: JSON.stringify({
+                protocol: 1, build: "public-relay-smoke-v1", platform: "pc",
+                resume_token: joined.resume_token
+            })
+        });
+        assert.equal(resumed.seat, joined.seat);
+        assert.notEqual(resumed.resume_token, joined.resume_token);
+        await bind(resumedClient);
+        await send(resumedClient, encodeEnvelope(
+            TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(resumed.join_token)
+        ), relay);
+        const rebound = decodeEnvelope(await receive(resumedClient));
+        assert.equal(rebound.type, TYPE_BOUND);
+        assert.equal(rebound.sourceSlot, clientBound.sourceSlot);
+        await send(resumedClient, encodeEnvelope(
+            TYPE_DATA, sessionId, rebound.sourceSlot, 0,
+            gameplayPacket(sessionId, rebound.sourceSlot)
+        ), relay);
+        const resumedForward = decodeEnvelope(await receive(host));
+        assert.equal(resumedForward.type, TYPE_DATA);
+        assert.equal(resumedForward.sourceSlot, rebound.sourceSlot);
+        process.stdout.write(
+            `public relay bind/resume smoke test passed via ${relay.address}:${relay.udp_port}\n`
+        );
     } finally {
         host.close();
         client.close();
+        resumedClient.close();
         if (lobbyId && hostSecret) {
             await request(`/lobbies/${lobbyId}`, {
                 method: "DELETE",

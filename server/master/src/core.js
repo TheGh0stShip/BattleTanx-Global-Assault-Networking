@@ -7,6 +7,8 @@ const PROTOCOL_VERSION = 1;
 const MAX_PLAYERS = 4;
 const LOBBY_TTL_SECONDS = 90;
 const JOIN_TOKEN_TTL_SECONDS = 30;
+const SEAT_LEASE_TTL_SECONDS = 10 * 60;
+const RESUME_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const MAX_NAME_LENGTH = 48;
 const MAX_BUILD_LENGTH = 64;
 const VALID_PLATFORMS = new Set([
@@ -27,19 +29,34 @@ class MasterError extends Error {
 class MemoryLobbyStore {
     constructor() {
         this.items = new Map();
+        this.versions = new Map();
     }
 
     async put(lobby) {
-        this.items.set(lobby.id, structuredClone(lobby));
+        const version = (this.versions.get(lobby.id) || 0) + 1;
+        this.versions.set(lobby.id, version);
+        const copy = structuredClone(lobby);
+        delete copy._etag;
+        this.items.set(lobby.id, copy);
     }
 
     async get(lobbyId) {
         const item = this.items.get(lobbyId);
-        return item === undefined ? null : structuredClone(item);
+        if (item === undefined) return null;
+        const copy = structuredClone(item);
+        copy._etag = String(this.versions.get(lobbyId));
+        return copy;
+    }
+
+    async compareAndSwap(lobby, etag) {
+        if (String(this.versions.get(lobby.id)) !== etag) return false;
+        await this.put(lobby);
+        return true;
     }
 
     async delete(lobbyId) {
         this.items.delete(lobbyId);
+        this.versions.delete(lobbyId);
     }
 
     async list() {
@@ -80,6 +97,22 @@ function constantTimeEqual(left, right) {
     const a = Buffer.from(left, "utf8");
     const b = Buffer.from(right, "utf8");
     return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function seatLeases(lobby, now) {
+    let parsed;
+    try {
+        parsed = JSON.parse(lobby.seat_leases_json || "[]");
+    } catch {
+        parsed = [];
+    }
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((lease) =>
+        lease && Number.isInteger(lease.seat) && lease.seat >= 0 &&
+        lease.seat < lobby.max_players && typeof lease.id === "string" &&
+        /^[0-9a-f]{32}$/.test(lease.id) && Number.isInteger(lease.expires) &&
+        lease.expires > now
+    );
 }
 
 class MasterService {
@@ -191,7 +224,8 @@ class MasterService {
             session_id: crypto.randomBytes(8).toString("hex"),
             secret_hash: this.secretHash(lobbyId, hostSecret),
             expires_at: now + LOBBY_TTL_SECONDS,
-            updated_at: now
+            updated_at: now,
+            seat_leases_json: "[]"
         };
         if (!VALID_STATES.has(lobby.state)) {
             throw new MasterError(400, "invalid_field", "state must be lobby or playing");
@@ -243,31 +277,37 @@ class MasterService {
     }
 
     async heartbeat(lobbyId, bearer, currentPlayers, state) {
-        const lobby = await this.store.get(lobbyId);
-        if (lobby === null) {
-            throw new MasterError(404, "not_found", "lobby not found");
-        }
-        this.authenticate(lobby, bearer);
-        if (!Number.isInteger(currentPlayers) || currentPlayers < 1 || currentPlayers > lobby.max_players) {
-            throw new MasterError(400, "invalid_field", "current_players is outside the lobby limit");
-        }
-        const now = Math.floor(this.clock());
-        lobby.current_players = currentPlayers;
-        if (state !== undefined) {
-            if (typeof state !== "string" || !VALID_STATES.has(state.toLowerCase())) {
-                throw new MasterError(400, "invalid_field", "state must be lobby or playing");
+        for (let attempt = 0; attempt < 8; ++attempt) {
+            const lobby = await this.store.get(lobbyId);
+            if (lobby === null) {
+                throw new MasterError(404, "not_found", "lobby not found");
             }
-            lobby.state = state.toLowerCase();
-        } else if (lobby.state === undefined) {
-            lobby.state = "lobby";
+            this.authenticate(lobby, bearer);
+            if (!Number.isInteger(currentPlayers) || currentPlayers < 1 ||
+                currentPlayers > lobby.max_players) {
+                throw new MasterError(
+                    400, "invalid_field", "current_players is outside the lobby limit");
+            }
+            const now = Math.floor(this.clock());
+            lobby.current_players = currentPlayers;
+            if (state !== undefined) {
+                if (typeof state !== "string" || !VALID_STATES.has(state.toLowerCase())) {
+                    throw new MasterError(
+                        400, "invalid_field", "state must be lobby or playing");
+                }
+                lobby.state = state.toLowerCase();
+            } else if (lobby.state === undefined) {
+                lobby.state = "lobby";
+            }
+            lobby.updated_at = now;
+            lobby.expires_at = now + LOBBY_TTL_SECONDS;
+            if (!await this.store.compareAndSwap(lobby, lobby._etag)) continue;
+            return {
+                ...MasterService.publicLobby(lobby),
+                relay_token: this.issueAuthorityRelayToken(lobby)
+            };
         }
-        lobby.updated_at = now;
-        lobby.expires_at = now + LOBBY_TTL_SECONDS;
-        await this.store.put(lobby);
-        return {
-            ...MasterService.publicLobby(lobby),
-            relay_token: this.issueAuthorityRelayToken(lobby)
-        };
+        throw new MasterError(409, "heartbeat_race", "lobby changed; retry the heartbeat");
     }
 
     async remove(lobbyId, bearer) {
@@ -280,43 +320,98 @@ class MasterService {
     }
 
     async join(lobbyId, data) {
-        const lobby = await this.store.get(lobbyId);
         const now = Math.floor(this.clock());
-        if (lobby === null || lobby.expires_at <= now) {
-            throw new MasterError(404, "not_found", "lobby not found");
+        const requestedResume = data.resume_token;
+        if (requestedResume !== undefined &&
+            (typeof requestedResume !== "string" || requestedResume.length > 1024)) {
+            throw new MasterError(400, "invalid_field", "resume_token is invalid");
         }
-        if (lobby.current_players >= lobby.max_players) {
-            throw new MasterError(409, "lobby_full", "lobby is full");
+        for (let attempt = 0; attempt < 8; ++attempt) {
+            const lobby = await this.store.get(lobbyId);
+            if (lobby === null || lobby.expires_at <= now) {
+                throw new MasterError(404, "not_found", "lobby not found");
+            }
+            if (
+                integer(data, "protocol", PROTOCOL_VERSION, PROTOCOL_VERSION) !== lobby.protocol ||
+                text(data, "build", MAX_BUILD_LENGTH) !== lobby.build
+            ) {
+                throw new MasterError(409, "incompatible", "client build is incompatible");
+            }
+            const platform = text(data, "platform", 16).toLowerCase();
+            if (!VALID_PLATFORMS.has(platform)) {
+                throw new MasterError(400, "invalid_field", "platform is not supported");
+            }
+            const leases = seatLeases(lobby, now);
+            let seat = -1;
+            if (requestedResume !== undefined) {
+                const claims = this.verifyResumeToken(requestedResume, lobby, now);
+                const lease = leases.find((candidate) =>
+                    candidate.seat === claims.seat && candidate.id === claims.lease);
+                if (!lease) {
+                    throw new MasterError(409, "resume_expired", "the player seat is no longer reserved");
+                }
+                seat = claims.seat;
+            } else {
+                if (lobby.current_players >= lobby.max_players ||
+                    leases.length >= lobby.max_players) {
+                    throw new MasterError(409, "lobby_full", "lobby is full");
+                }
+                for (let candidate = 0; candidate < lobby.max_players; ++candidate) {
+                    if (!leases.some((lease) => lease.seat === candidate)) {
+                        seat = candidate;
+                        break;
+                    }
+                }
+                if (seat < 0) throw new MasterError(409, "lobby_full", "lobby is full");
+            }
+            const leaseId = crypto.randomBytes(16).toString("hex");
+            const renewed = leases.filter((lease) => lease.seat !== seat);
+            renewed.push({ seat, id: leaseId, expires: now + SEAT_LEASE_TTL_SECONDS });
+            lobby.seat_leases_json = JSON.stringify(renewed);
+            if (!await this.store.compareAndSwap(lobby, lobby._etag)) continue;
+            const payload = {
+                lobby: lobbyId, session: lobby.session_id, protocol: lobby.protocol,
+                build: lobby.build, platform, role: "client", seat,
+                max_players: lobby.max_players, expires: now + JOIN_TOKEN_TTL_SECONDS,
+                nonce: crypto.randomBytes(8).toString("hex")
+            };
+            const resume = {
+                lobby: lobbyId, session: lobby.session_id, role: "resume", seat,
+                lease: leaseId, expires: now + RESUME_TOKEN_TTL_SECONDS
+            };
+            return {
+                host: lobby.udp_port === 0
+                    ? null : { address: lobby.host_ip, udp_port: lobby.udp_port },
+                relay: this.relayEndpoint,
+                session_id: lobby.session_id,
+                seat,
+                join_token: this.issueAdmissionToken(payload),
+                resume_token: this.issueAdmissionToken(resume),
+                expires_at: payload.expires
+            };
         }
-        if (
-            integer(data, "protocol", PROTOCOL_VERSION, PROTOCOL_VERSION) !== lobby.protocol ||
-            text(data, "build", MAX_BUILD_LENGTH) !== lobby.build
-        ) {
-            throw new MasterError(409, "incompatible", "client build is incompatible");
+        throw new MasterError(409, "join_race", "seat allocation changed; retry the request");
+    }
+
+    verifyResumeToken(token, lobby, now) {
+        try {
+            const parts = token.split(".");
+            if (parts.length !== 2) throw new Error("invalid token parts");
+            const [encoded, suppliedSignature] = parts;
+            const signature = Buffer.from(suppliedSignature, "base64url");
+            if (signature.length !== 64 || !crypto.verify(
+                null, Buffer.from(encoded, "ascii"), this.relayPublicKey, signature
+            )) throw new Error("invalid signature");
+            const claims = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+            if (claims.lobby !== lobby.id || claims.session !== lobby.session_id ||
+                claims.role !== "resume" || !Number.isInteger(claims.seat) ||
+                claims.seat < 0 || claims.seat >= lobby.max_players ||
+                typeof claims.lease !== "string" || !Number.isInteger(claims.expires) ||
+                claims.expires < now) throw new Error("invalid claims");
+            return claims;
+        } catch {
+            throw new MasterError(403, "invalid_resume", "resume token is invalid or expired");
         }
-        const platform = text(data, "platform", 16).toLowerCase();
-        if (!VALID_PLATFORMS.has(platform)) {
-            throw new MasterError(400, "invalid_field", "platform is not supported");
-        }
-        const payload = {
-            lobby: lobbyId,
-            session: lobby.session_id,
-            protocol: lobby.protocol,
-            build: lobby.build,
-            platform,
-            role: "client",
-            max_players: lobby.max_players,
-            expires: now + JOIN_TOKEN_TTL_SECONDS,
-            nonce: crypto.randomBytes(8).toString("hex")
-        };
-        return {
-            host: lobby.udp_port === 0
-                ? null : { address: lobby.host_ip, udp_port: lobby.udp_port },
-            relay: this.relayEndpoint,
-            session_id: lobby.session_id,
-            join_token: this.issueAdmissionToken(payload),
-            expires_at: payload.expires
-        };
     }
 
     async validateJoinToken(lobbyId, bearer, token) {
@@ -360,6 +455,8 @@ class MasterService {
 module.exports = {
     BUILD_PATTERN,
     JOIN_TOKEN_TTL_SECONDS,
+    RESUME_TOKEN_TTL_SECONDS,
+    SEAT_LEASE_TTL_SECONDS,
     LOBBY_TTL_SECONDS,
     MAX_PLAYERS,
     MasterError,

@@ -160,10 +160,23 @@ is lost, they pause rather than predicting indefinitely and may fast-forward
 only from a newer complete authority snapshot. A snapshot for the client's
 current tick is confirmed byte-for-byte when prediction agrees; when it does
 not, the complete snapshot replaces live portable state at that tick boundary.
-The current PC implementation sends a full checkpoint every five ticks while a
-delta-compressed representation is developed. Ports must keep host-local
-handles (audio voices, renderer resources, native pointers) out of portable
-state.
+The current PC implementation uses destination-specific subscriptions and
+services one seat every eight ticks in round-robin order, avoiding a broadcast
+bandwidth multiplier. A freshly restarted PC client receives a sparse recovery
+patch whose ranges include both the authority's tick-zero bytes and current
+bytes. A range byte is installed only when the restarted process still matches
+the expected baseline, after which the portable gameplay snapshot is restored
+and its digest verified. This enables same-build Windows process recovery while
+leaving host-local state untouched. Other architectures still require a fully
+portable serializer; ports must never copy audio handles, renderer resources,
+native pointers, or ABI-dependent layouts between machines.
+
+The master assigns each joining client an atomic ten-minute seat lease and a
+signed resume credential. Resume renews the same seat with compare-and-swap,
+rotates the lease ID, and rejects reuse of the previous credential. The game
+server remains the state oracle while a disconnected player is absent, so the
+other seats continue and the returning process receives current canonical
+state rather than becoming a new authority.
 
 An optional direct peer path may be researched later as a latency optimization,
 but it can never be required for joining. The supported baseline contains no

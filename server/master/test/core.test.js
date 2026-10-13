@@ -99,11 +99,41 @@ test("join tokens are bound to a lobby and expire", async () => {
     assert.equal(payload.protocol, 1);
     assert.equal(payload.build, registration.build);
     assert.equal(payload.role, "client");
+    assert.equal(payload.seat, 0);
+    assert.equal(joined.seat, 0);
+    assert.equal(typeof joined.resume_token, "string");
     assert.equal(payload.max_players, 4);
     state.now += 31;
     await assert.rejects(
         service.validateJoinToken(result.lobby.id, auth, joined.join_token),
         (error) => error instanceof MasterError && error.code === "invalid_token"
+    );
+});
+
+test("four seats allocate atomically and a rotating credential resumes a full lobby", async () => {
+    const { service, registration } = fixture();
+    const result = await service.register(registration, "203.0.113.7");
+    const request = { protocol: 1, build: registration.build, platform: "pc" };
+    const joined = await Promise.all(Array.from({ length: 4 }, () =>
+        service.join(result.lobby.id, request)
+    ));
+    assert.deepEqual(joined.map((entry) => entry.seat).sort(), [0, 1, 2, 3]);
+    await assert.rejects(
+        service.join(result.lobby.id, request),
+        (error) => error instanceof MasterError && error.code === "lobby_full"
+    );
+
+    const resumed = await service.join(result.lobby.id, {
+        ...request, resume_token: joined[2].resume_token
+    });
+    assert.equal(resumed.seat, joined[2].seat);
+    assert.notEqual(resumed.join_token, joined[2].join_token);
+    assert.notEqual(resumed.resume_token, joined[2].resume_token);
+    await assert.rejects(
+        service.join(result.lobby.id, {
+            ...request, resume_token: joined[2].resume_token
+        }),
+        (error) => error instanceof MasterError && error.code === "resume_expired"
     );
 });
 

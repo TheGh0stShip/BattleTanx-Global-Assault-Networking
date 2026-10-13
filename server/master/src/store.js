@@ -20,7 +20,7 @@ class AzureLobbyStore {
     }
 
     static fromEntity(source) {
-        const entity = { ...source, id: source.rowKey };
+        const entity = { ...source, id: source.rowKey, _etag: source.etag };
         delete entity.partitionKey;
         delete entity.rowKey;
         delete entity.timestamp;
@@ -37,7 +37,26 @@ class AzureLobbyStore {
             rowKey: lobby.id
         };
         delete entity.id;
+        delete entity._etag;
         await this.table.upsertEntity(entity, "Replace");
+    }
+
+    async compareAndSwap(lobby, etag) {
+        const entity = {
+            ...lobby,
+            capabilities: String(lobby.capabilities),
+            partitionKey: "lobbies",
+            rowKey: lobby.id
+        };
+        delete entity.id;
+        delete entity._etag;
+        try {
+            await this.table.updateEntity(entity, "Replace", { etag });
+            return true;
+        } catch (error) {
+            if (error.statusCode === 409 || error.statusCode === 412) return false;
+            throw error;
+        }
     }
 
     async get(lobbyId) {
