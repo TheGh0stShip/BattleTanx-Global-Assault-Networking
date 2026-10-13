@@ -14,9 +14,10 @@ const PROVISIONAL_SEAT_TTL_SECONDS = 60;
 // An unconfirmed seat older than this may be reassigned to a new joiner. It
 // exceeds the 15-second authority heartbeat plus relay binding time.
 const PROVISIONAL_EVICTION_SECONDS = 30;
-// Unconfirmed seats one caller address may hold in a lobby. Two allows players
-// sharing a household NAT; a further join replaces that address's oldest one.
-const PROVISIONAL_SEATS_PER_SOURCE = 2;
+// One household NAT must be able to place every supported player into the
+// same lobby. A further join from that address replaces its oldest provisional
+// seat; the 30-second stale takeover and 60-second expiry still bound abuse.
+const PROVISIONAL_SEATS_PER_SOURCE = MAX_PLAYERS;
 const RESUME_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const MAX_NAME_LENGTH = 48;
 const MAX_BUILD_LENGTH = 64;
@@ -419,9 +420,7 @@ class MasterService {
                 const own = source === "" ? [] : unconfirmed
                     .filter((lease) => lease.source === source)
                     .sort((a, b) => a.issued - b.issued || a.seat - b.seat);
-                if (own.length >= PROVISIONAL_SEATS_PER_SOURCE) {
-                    seat = own[0].seat;
-                } else {
+                if (own.length < PROVISIONAL_SEATS_PER_SOURCE) {
                     for (let candidate = 0; candidate < lobby.max_players; ++candidate) {
                         if (!leases.some((lease) => lease.seat === candidate)) {
                             seat = candidate;

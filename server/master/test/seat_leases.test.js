@@ -262,19 +262,16 @@ test("unconfirmed seats expire after the provisional TTL", async () => {
     assert.equal((await f.join()).seat, squatter.seat);
 });
 
-test("anonymous joins cannot exhaust a lobby", async () => {
+test("four players behind one NAT can join while anonymous seats remain bounded", async () => {
     const f = await fixture();
     await f.heartbeat(1, 0);
-    // One address holds at most two unconfirmed seats.
+    // A normal household can fill all four seats through one public address.
     const fromOne = [];
     for (let i = 0; i < 4; ++i) fromOne.push(await f.join({}, "198.51.100.1"));
-    assert.equal(new Set(fromOne.map((joined) => joined.seat)).size, 2);
-    // Many addresses can fill the lobby, but only briefly.
-    await f.join({}, "198.51.100.2");
-    await f.join({}, "198.51.100.3");
-    assert.equal(await code(f.join({}, "198.51.100.4")), "lobby_full");
+    assert.equal(new Set(fromOne.map((joined) => joined.seat)).size, 4);
+    assert.equal(await code(f.join({}, "198.51.100.2")), "lobby_full");
     f.state.now += PROVISIONAL_EVICTION_SECONDS;
-    const real = await f.join({}, "198.51.100.5");
+    const real = await f.join({}, "198.51.100.2");
     // The real player binds and the authority confirms the seat; it is then
     // never handed to anyone else, however many joins follow.
     await f.heartbeat(2, 1 << real.seat);
@@ -401,12 +398,14 @@ test("HTTP routes pass seat_mask and the caller address to the service", async (
         { authorization: `Bearer ${f.reg.host_secret}` }), { lobbyId }, factory);
     assert.equal(result.status, 200);
     const seats = [];
-    for (let i = 0; i < 3; ++i) {
+    for (let i = 0; i < 4; ++i) {
         result = await handle("join", request("POST", joinBody, forwarded), { lobbyId }, factory);
         assert.equal(result.status, 200);
         seats.push(JSON.parse(result.body).seat);
     }
-    assert.equal(new Set(seats).size, 2, "one address is limited to two unconfirmed seats");
+    assert.equal(new Set(seats).size, 4, "one household NAT can fill a four-seat lobby");
+    result = await handle("join", request("POST", joinBody, forwarded), { lobbyId }, factory);
+    assert.equal(result.status, 409);
     result = await handle("heartbeat", request("PUT", { current_players: 1, seat_mask: 99 },
         { authorization: `Bearer ${f.reg.host_secret}` }), { lobbyId }, factory);
     assert.equal(result.status, 400);
