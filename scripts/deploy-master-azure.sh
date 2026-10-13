@@ -10,14 +10,22 @@ usage() {
 resource_group=$1
 function_app=$2
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-package=${3:-"$repo_root/build/btga-master-source.zip"}
+if [ "$#" -eq 3 ]; then
+    package=$3
+    [ -f "$package" ] || {
+        echo "explicit deployment package does not exist: $package" >&2
+        exit 1
+    }
+else
+    package="$repo_root/build/btga-master-source.zip"
+    # A default deployment always packages the checked-out source. Reusing a
+    # prior archive can silently deploy code from an older commit while every
+    # local test is running against the current tree.
+    "$repo_root/scripts/package-master.sh" "$package" >/dev/null
+fi
 
 command -v az >/dev/null 2>&1 || { echo "Azure CLI is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
-
-if [ ! -f "$package" ]; then
-    "$repo_root/scripts/package-master.sh" "$package" >/dev/null
-fi
 
 runtime=$(az resource show \
     --resource-group "$resource_group" \
