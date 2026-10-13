@@ -8,6 +8,15 @@ const MAX_PLAYERS = 4;
 const LOBBY_TTL_SECONDS = 90;
 const JOIN_TOKEN_TTL_SECONDS = 30;
 const SEAT_LEASE_TTL_SECONDS = 10 * 60;
+// Join is anonymous, so a new seat is only provisional. It becomes a full
+// lease when the authority's heartbeat reports that seat in `seat_mask`.
+const PROVISIONAL_SEAT_TTL_SECONDS = 60;
+// An unconfirmed seat older than this may be reassigned to a new joiner. It
+// exceeds the 15-second authority heartbeat plus relay binding time.
+const PROVISIONAL_EVICTION_SECONDS = 30;
+// Unconfirmed seats one caller address may hold in a lobby. Two allows players
+// sharing a household NAT; a further join replaces that address's oldest one.
+const PROVISIONAL_SEATS_PER_SOURCE = 2;
 const RESUME_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const MAX_NAME_LENGTH = 48;
 const MAX_BUILD_LENGTH = 64;
@@ -24,6 +33,12 @@ class MasterError extends Error {
         this.status = status;
         this.code = code;
     }
+}
+
+// A compare-and-swap must name a concrete version. Azure's SDK turns a missing
+// etag into "*" (an unconditional write), so both stores fail closed instead.
+function validEtag(etag) {
+    return typeof etag === "string" && etag !== "" && etag !== "*";
 }
 
 class MemoryLobbyStore {
@@ -49,6 +64,7 @@ class MemoryLobbyStore {
     }
 
     async compareAndSwap(lobby, etag) {
+        if (!validEtag(etag)) return false;
         if (String(this.versions.get(lobby.id)) !== etag) return false;
         await this.put(lobby);
         return true;
@@ -104,15 +120,30 @@ function seatLeases(lobby, now) {
     try {
         parsed = JSON.parse(lobby.seat_leases_json || "[]");
     } catch {
-        parsed = [];
+        parsed = null;
     }
-    if (!Array.isArray(parsed)) return [];
+    // Unreadable reservations must not turn into "every seat is free".
+    if (!Array.isArray(parsed)) {
+        throw new MasterError(503, "lobby_state_invalid", "lobby seat state is unreadable");
+    }
     return parsed.filter((lease) =>
         lease && Number.isInteger(lease.seat) && lease.seat >= 0 &&
         lease.seat < lobby.max_players && typeof lease.id === "string" &&
         /^[0-9a-f]{32}$/.test(lease.id) && Number.isInteger(lease.expires) &&
         lease.expires > now
-    );
+    ).map((lease) => ({
+        seat: lease.seat,
+        id: lease.id,
+        expires: lease.expires,
+        // Leases written before confirmation existed were full leases.
+        confirmed: lease.confirmed !== false,
+        issued: Number.isInteger(lease.issued) ? lease.issued : 0,
+        source: typeof lease.source === "string" ? lease.source : ""
+    }));
+}
+
+function leaseSequence(lobby) {
+    return Number.isSafeInteger(lobby.lease_seq) && lobby.lease_seq >= 0 ? lobby.lease_seq : 0;
 }
 
 class MasterService {
@@ -276,7 +307,12 @@ class MasterService {
         };
     }
 
-    async heartbeat(lobbyId, bearer, currentPlayers, state) {
+    sourceTag(observedIp) {
+        return crypto.createHmac("sha256", this.secretKey)
+            .update(`source:${observedIp}`).digest("hex").slice(0, 16);
+    }
+
+    async heartbeat(lobbyId, bearer, currentPlayers, state, seatMask) {
         for (let attempt = 0; attempt < 8; ++attempt) {
             const lobby = await this.store.get(lobbyId);
             if (lobby === null) {
@@ -299,6 +335,21 @@ class MasterService {
             } else if (lobby.state === undefined) {
                 lobby.state = "lobby";
             }
+            if (seatMask !== undefined) {
+                if (!Number.isInteger(seatMask) || seatMask < 0 ||
+                    seatMask >= (1 << lobby.max_players)) {
+                    throw new MasterError(
+                        400, "invalid_field", "seat_mask is outside the lobby seats");
+                }
+                // Only seats the authority reports connected are renewed. A
+                // seat absent from the mask keeps its remaining lease, which is
+                // the window in which its player may resume.
+                lobby.seat_leases_json = JSON.stringify(seatLeases(lobby, now).map((lease) =>
+                    (seatMask & (1 << lease.seat)) === 0 ? lease : {
+                        ...lease, confirmed: true, expires: now + SEAT_LEASE_TTL_SECONDS
+                    }));
+                lobby.seat_mask_seen = true;
+            }
             lobby.updated_at = now;
             lobby.expires_at = now + LOBBY_TTL_SECONDS;
             if (!await this.store.compareAndSwap(lobby, lobby._etag)) continue;
@@ -319,7 +370,9 @@ class MasterService {
         await this.store.delete(lobbyId);
     }
 
-    async join(lobbyId, data) {
+    // `observedIp` is the caller address seen by the HTTP front end. When it is
+    // supplied, it bounds how many unconfirmed seats one address can hold.
+    async join(lobbyId, data, observedIp) {
         const now = Math.floor(this.clock());
         const requestedResume = data.resume_token;
         if (requestedResume !== undefined &&
@@ -342,36 +395,71 @@ class MasterService {
                 throw new MasterError(400, "invalid_field", "platform is not supported");
             }
             const leases = seatLeases(lobby, now);
+            const source = observedIp === undefined ? "" : this.sourceTag(observedIp);
+            // Lobbies whose authority has never sent seat_mask keep the
+            // original full-length leases so active players are not evicted.
+            const strict = lobby.seat_mask_seen === true;
             let seat = -1;
+            let previous;
             if (requestedResume !== undefined) {
                 const claims = this.verifyResumeToken(requestedResume, lobby, now);
-                const lease = leases.find((candidate) =>
+                previous = leases.find((candidate) =>
                     candidate.seat === claims.seat && candidate.id === claims.lease);
-                if (!lease) {
+                if (!previous) {
                     throw new MasterError(409, "resume_expired", "the player seat is no longer reserved");
                 }
                 seat = claims.seat;
             } else {
-                if (lobby.current_players >= lobby.max_players ||
-                    leases.length >= lobby.max_players) {
+                if (lobby.current_players >= lobby.max_players) {
                     throw new MasterError(409, "lobby_full", "lobby is full");
                 }
-                for (let candidate = 0; candidate < lobby.max_players; ++candidate) {
-                    if (!leases.some((lease) => lease.seat === candidate)) {
-                        seat = candidate;
-                        break;
+                const unconfirmed = strict
+                    ? leases.filter((lease) => !lease.confirmed)
+                    : [];
+                const own = source === "" ? [] : unconfirmed
+                    .filter((lease) => lease.source === source)
+                    .sort((a, b) => a.issued - b.issued || a.seat - b.seat);
+                if (own.length >= PROVISIONAL_SEATS_PER_SOURCE) {
+                    seat = own[0].seat;
+                } else {
+                    for (let candidate = 0; candidate < lobby.max_players; ++candidate) {
+                        if (!leases.some((lease) => lease.seat === candidate)) {
+                            seat = candidate;
+                            break;
+                        }
                     }
                 }
-                if (seat < 0) throw new MasterError(409, "lobby_full", "lobby is full");
+                if (seat < 0) {
+                    const stale = unconfirmed
+                        .filter((lease) => now - lease.issued >= PROVISIONAL_EVICTION_SECONDS)
+                        .sort((a, b) => a.issued - b.issued || a.seat - b.seat)[0];
+                    if (stale === undefined) {
+                        throw new MasterError(409, "lobby_full", "lobby is full");
+                    }
+                    seat = stale.seat;
+                }
             }
             const leaseId = crypto.randomBytes(16).toString("hex");
+            const sequence = leaseSequence(lobby) + 1;
             const renewed = leases.filter((lease) => lease.seat !== seat);
-            renewed.push({ seat, id: leaseId, expires: now + SEAT_LEASE_TTL_SECONDS });
+            const confirmed = previous !== undefined ? previous.confirmed : !strict;
+            let expires = now + (strict ? PROVISIONAL_SEAT_TTL_SECONDS : SEAT_LEASE_TTL_SECONDS);
+            let issued = now;
+            if (previous !== undefined && strict) {
+                // Resuming never extends an unconfirmed seat or restarts its
+                // eviction clock; otherwise repeated resumes could hold it.
+                expires = confirmed
+                    ? Math.max(previous.expires, now + PROVISIONAL_SEAT_TTL_SECONDS)
+                    : previous.expires;
+                issued = confirmed ? now : previous.issued;
+            }
+            renewed.push({ seat, id: leaseId, expires, confirmed, issued, source });
             lobby.seat_leases_json = JSON.stringify(renewed);
+            lobby.lease_seq = sequence;
             if (!await this.store.compareAndSwap(lobby, lobby._etag)) continue;
             const payload = {
                 lobby: lobbyId, session: lobby.session_id, protocol: lobby.protocol,
-                build: lobby.build, platform, role: "client", seat,
+                build: lobby.build, platform, role: "client", seat, lease_seq: sequence,
                 max_players: lobby.max_players, expires: now + JOIN_TOKEN_TTL_SECONDS,
                 nonce: crypto.randomBytes(8).toString("hex")
             };
@@ -463,5 +551,9 @@ module.exports = {
     MasterService,
     MemoryLobbyStore,
     PROTOCOL_VERSION,
-    VALID_PLATFORMS
+    PROVISIONAL_EVICTION_SECONDS,
+    PROVISIONAL_SEATS_PER_SOURCE,
+    PROVISIONAL_SEAT_TTL_SECONDS,
+    VALID_PLATFORMS,
+    validEtag
 };

@@ -103,7 +103,9 @@ class RelayCore {
                 return [{ remote, packet: this.errorFor(envelope, "BUSY") }];
             }
             if (session === undefined) {
-                session = { maxPlayers: claims.max_players, peers: new Map() };
+                session = {
+                    maxPlayers: claims.max_players, peers: new Map(), seatSequences: new Map()
+                };
                 this.sessions.set(key, session);
             } else {
                 const oldAuthority = session.peers.get(0);
@@ -121,6 +123,17 @@ class RelayCore {
         if (claims.role === "client") {
             if (claims.seat !== undefined) {
                 slot = claims.seat + 1;
+                // The master numbers every seat issuance. Once this relay has
+                // admitted a seat at some sequence, an older admission token
+                // for it (issued before a resume rotated the lease) is stale.
+                // This uses only this session's own state; it is lost if the
+                // session is purged, which leaves at most the 30-second token
+                // lifetime as the exposure window.
+                const sequence = claims.lease_seq === undefined ? 0 : claims.lease_seq;
+                if (sequence < (session.seatSequences.get(slot) || 0)) {
+                    return [{ remote, packet: this.errorFor(envelope, "STALE") }];
+                }
+                session.seatSequences.set(slot, sequence);
                 const previous = session.peers.get(slot);
                 if (previous !== undefined) {
                     // The master is the seat allocator. A newly signed token

@@ -93,7 +93,10 @@ function verifyAdmissionToken(token, publicKey, nowSeconds) {
         claims.max_players < 1 || claims.max_players > MAX_PLAYER_SEATS ||
         (claims.role === "client" && claims.seat !== undefined &&
             (!Number.isInteger(claims.seat) || claims.seat < 0 ||
-             claims.seat >= claims.max_players))
+             claims.seat >= claims.max_players)) ||
+        (claims.lease_seq !== undefined &&
+            (claims.role !== "client" || claims.seat === undefined ||
+             !Number.isSafeInteger(claims.lease_seq) || claims.lease_seq < 1))
     ) {
         throw new Error("invalid token claims");
     }

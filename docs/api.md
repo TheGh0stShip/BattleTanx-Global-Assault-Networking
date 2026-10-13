@@ -51,6 +51,11 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
 - `PUT /lobbies/{id}/heartbeat` with `{ "current_players": N, "state":
   "lobby" | "playing" }` extends the 90-second lobby lease and returns a
   refreshed host `relay_token`. `state` may be omitted for older clients.
+  Dedicated authorities should also send `"seat_mask": M`, the bitmask of
+  player seats currently connected (bit N is seat N, below `max_players`).
+  Each listed seat's lease is confirmed and renewed for ten minutes; seats not
+  listed are left to expire. Once a lobby has sent `seat_mask`, new seats are
+  provisional until a heartbeat lists them.
 - `DELETE /lobbies/{id}` removes the lobby.
 - `POST /lobbies/{id}/validate-join` with `{ "join_token": "..." }` verifies
   a client token before admitting that client to the UDP session.
@@ -61,12 +66,26 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
 optional opaque `resume_token`. A new join atomically leases the lowest free
 seat. A valid resume credential rotates that lease and reclaims the same seat,
 including when all four seats are reserved. Concurrent joins use Azure Table
-ETag compare-and-swap; they cannot receive the same seat.
+ETag compare-and-swap; they cannot receive the same seat. A compare-and-swap
+without a concrete ETag fails closed. Unreadable seat state returns
+`503 lobby_state_invalid` rather than freeing seats.
+
+Join is anonymous, so in lobbies whose authority sends `seat_mask` a new seat
+is provisional: it lasts 60 seconds unless a heartbeat confirms it. When every
+seat is taken, a new join may take over the oldest unconfirmed seat that is at
+least 30 seconds old. Confirmed seats are never reassigned while their lease
+lives. One caller address holds at most two unconfirmed seats per lobby;
+a further join from it replaces its oldest one. Lobbies that have never sent
+`seat_mask` keep ten-minute leases with no renewal, as before.
 
 The response returns `seat`, `resume_token`, the configured public `relay`
 endpoint, the same 16-character hexadecimal `session_id`, and a fresh
-Ed25519-signed join token that expires after 30 seconds. Seat leases last ten
-minutes. The resume credential has a longer signature expiry but is usable only
+Ed25519-signed join token that expires after 30 seconds. The join token
+carries `seat` and `lease_seq`, a per-lobby number that increases with every
+seat issuance. Once the relay has admitted a seat at some `lease_seq`, it
+rejects any older token for that seat with `STALE`, so an unused join token
+issued before a resume cannot displace the resumed player. Confirmed seat
+leases last ten minutes after the authority last reported the seat. The resume credential has a longer signature expiry but is usable only
 while its exact current lease still exists; successful resume rotates the lease
 ID and immediately invalidates the old credential. Clients must replace their
 stored credential atomically and treat it as a bearer secret.

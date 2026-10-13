@@ -237,6 +237,72 @@ test("a fresh signed token resumes the same stable player seat", async () => {
     assert.deepEqual(result[0].remote, authority);
 });
 
+test("an unused join token issued before a resume cannot evict the resumed seat", async () => {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW,
+        { address: "relay.example", udp_port: 30420 }, privateKey
+    );
+    const registration = await service.register({
+        name: "Stale token", protocol: 1, build: "test", platform: "pc",
+        capabilities: 2, region: "local", max_players: 4,
+        current_players: 1, udp_port: 30420
+    }, "203.0.113.1");
+    const request = { protocol: 1, build: "test", platform: "pc" };
+    const original = await service.join(registration.lobby.id, request);
+    const resumed = await service.join(registration.lobby.id, {
+        ...request, resume_token: original.resume_token
+    });
+    const sessionId = BigInt(`0x${registration.session_id}`);
+    const core = new RelayCore(publicKey, { clock: () => NOW });
+    core.handle(encodeEnvelope(
+        TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(registration.relay_token)
+    ), remote(42200));
+    const bind = (token, port) => decodeEnvelope(core.handle(encodeEnvelope(
+        TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(token)
+    ), remote(port))[0].packet);
+
+    assert.equal(bind(resumed.join_token, 42201).type, TYPE_BOUND);
+    const stale = bind(original.join_token, 42202);
+    assert.equal(stale.type, TYPE_ERROR);
+    assert.equal(stale.payload.toString("ascii"), "STALE");
+    assert.equal(core.endpoints.has("IPv4|127.0.0.1|42201"), true);
+    assert.equal(core.endpoints.has("IPv4|127.0.0.1|42202"), false);
+
+    // A later resume still replaces the bound endpoint.
+    const again = await service.join(registration.lobby.id, {
+        ...request, resume_token: resumed.resume_token
+    });
+    assert.equal(bind(again.join_token, 42203).type, TYPE_BOUND);
+    assert.equal(core.endpoints.has("IPv4|127.0.0.1|42201"), false);
+});
+
+test("lease sequence claims are only accepted on seated client tokens", async () => {
+    const auth = await credentials();
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
+    core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
+    ), remote(42210));
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null, auth.privateKey
+    );
+    const base = {
+        session: auth.sessionId.toString(16).padStart(16, "0"),
+        protocol: 1, role: "client", seat: 1, max_players: 4, expires: NOW + 30
+    };
+    let port = 42211;
+    for (const claims of [
+        { ...base, lease_seq: 0 }, { ...base, lease_seq: -1 }, { ...base, lease_seq: 1.5 },
+        { ...base, lease_seq: "2" }, { ...base, seat: undefined, lease_seq: 2 }
+    ]) {
+        const nonce = crypto.randomBytes(8).toString("hex");
+        assert.deepEqual(core.handle(encodeEnvelope(
+            TYPE_BIND, auth.sessionId, 0xffff, 0,
+            Buffer.from(service.issueAdmissionToken({ ...claims, nonce }))
+        ), remote(port++)), []);
+    }
+});
+
 test("seat claims outside the four-player session are rejected", async () => {
     const auth = await credentials();
     const core = new RelayCore(auth.publicKey, { clock: () => NOW });

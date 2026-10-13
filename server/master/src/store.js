@@ -1,6 +1,7 @@
 "use strict";
 
 const { TableClient } = require("@azure/data-tables");
+const { validEtag } = require("./core");
 
 class AzureLobbyStore {
     constructor(table) {
@@ -42,6 +43,7 @@ class AzureLobbyStore {
     }
 
     async compareAndSwap(lobby, etag) {
+        if (!validEtag(etag)) return false;
         const entity = {
             ...lobby,
             capabilities: String(lobby.capabilities),

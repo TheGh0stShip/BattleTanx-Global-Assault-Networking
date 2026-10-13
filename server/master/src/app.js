@@ -164,7 +164,8 @@ async function handle(operation, req, bindingData = {}, serviceFactory = product
         if (operation === "heartbeat") {
             const data = jsonBody(req);
             return response(await service.heartbeat(
-                lobbyId, header(req, "authorization"), data.current_players, data.state
+                lobbyId, header(req, "authorization"), data.current_players, data.state,
+                data.seat_mask
             ));
         }
         if (operation === "remove") {
@@ -172,7 +173,8 @@ async function handle(operation, req, bindingData = {}, serviceFactory = product
             return { status: 204, body: "" };
         }
         if (operation === "join") {
-            return response(await service.join(lobbyId, jsonBody(req)));
+            return response(await service.join(
+                lobbyId, jsonBody(req), observedIp(req) || "unknown"));
         }
         if (operation === "validateJoin") {
             const data = jsonBody(req);
