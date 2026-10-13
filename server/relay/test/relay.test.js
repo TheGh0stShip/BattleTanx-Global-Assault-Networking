@@ -97,7 +97,11 @@ test("invalid and replayed admission tokens cannot redirect traffic", async () =
     ), remote(41001));
     assert.equal(decodeEnvelope(replay[0].packet).type, TYPE_ERROR);
     assert.equal(decodeEnvelope(replay[0].packet).payload.toString("ascii"), "REPLAY");
-    const tampered = `${auth.clientToken.slice(0, -1)}x`;
+    // Always change the signature text. For 64-byte Ed25519 signatures some
+    // last-character substitutions alter only unused base64url bits; the
+    // relay must reject those noncanonical aliases as well as changed bytes.
+    const replacement = auth.clientToken.endsWith("A") ? "B" : "A";
+    const tampered = `${auth.clientToken.slice(0, -1)}${replacement}`;
     const denied = core.handle(encodeEnvelope(
         TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(tampered)
     ), remote(41001));

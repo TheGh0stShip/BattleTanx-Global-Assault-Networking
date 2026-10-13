@@ -89,8 +89,11 @@ Ticks and buttons are explicitly big-endian on the wire; signed axes are raw
 two's-complement bytes. Repeating recent frames in later batches provides
 loss tolerance without increasing the original simulation rate. The host must
 authenticate the packet's peer-to-player assignment rather than trusting the
-payload's player ID. World snapshots remain game-specific and are not defined
-until the recovered game-state ownership boundary is audited.
+payload's player ID. World snapshots remain game-specific. The PC port now
+uses a bounded selected-state match-epoch snapshot, while retaining fail-closed
+digest handling because pointer-owned world state is not yet complete enough
+for general mid-match rollback. Snapshot bytes are deliberately not part of
+this cross-platform protocol until the recovered ownership boundary is stable.
 
 `BtgaNetFrameSync` is the portable simulation-boundary marker carried in an
 `EVENT` message. Its fixed 12-byte payload contains a version/type prefix, a
@@ -98,8 +101,10 @@ big-endian 32-bit frame number, and a big-endian 32-bit state checksum. Ports
 may initially set the checksum to a documented sentinel while recovering a
 canonical game-state digest. The frame marker supports a strict common start
 and a bounded lead window without serializing pointers, host time, or native
-state. It is not itself rollback: ports retain input history and snapshots
-needed to resimulate after a late correction.
+state. It is not itself rollback: ports retain input history and complete
+snapshots needed to resimulate after a late correction. The current PC
+implementation uses bounded lockstep and aborts a persistently divergent
+online session rather than claiming rollback from an incomplete snapshot.
 
 ## Synchronized lobby and player selection
 

@@ -69,13 +69,20 @@ function verifyAdmissionToken(token, publicKey, nowSeconds) {
         throw new Error("invalid token syntax");
     }
     const [encoded, suppliedSignature] = token.split(".");
+    const encodedClaims = Buffer.from(encoded, "base64url");
     const signature = Buffer.from(suppliedSignature, "base64url");
-    if (signature.length !== 64 || !crypto.verify(
+    // Node's decoder accepts non-zero unused trailing bits, which permits
+    // several textual encodings of the same signature bytes. Require the
+    // unique canonical encoding before signature verification so admission
+    // tokens cannot be rewritten into aliases that bypass text-keyed policy.
+    if (encodedClaims.toString("base64url") !== encoded ||
+        signature.toString("base64url") !== suppliedSignature ||
+        signature.length !== 64 || !crypto.verify(
         null, Buffer.from(encoded, "ascii"), publicKey, signature
     )) {
         throw new Error("invalid token signature");
     }
-    const claims = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    const claims = JSON.parse(encodedClaims.toString("utf8"));
     if (
         claims.protocol !== 1 ||
         (claims.role !== "host" && claims.role !== "client") ||

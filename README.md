@@ -29,7 +29,8 @@ or individual game port.
 - Azure lobby/discovery core and Node 22 Functions adapter
 - No UPnP, NAT-PMP or manual port forwarding is required
 - Networking is dormant until a player explicitly enters Online Multiplayer
-- Network matches use one full-screen local camera per device by default
+- The PC port has a pre-boot deterministic rendezvous, delayed frame inputs,
+  match-epoch snapshots, per-frame state digests, and bounded peer-loss waits
 
 The live multiplayer dashboard is available at
 [`https://btga.thegh0stship.com/`](https://btga.thegh0stship.com/), with the
@@ -41,6 +42,14 @@ relays gameplay traffic without exposing player addresses to one another.
 The retail simulation remains four-player until every fixed-size gameplay,
 camera, HUD, spawn and scoring structure is audited. A 16-slot packet format is
 not a claim that the game already supports 16 active tanks.
+
+The definitive PC port currently renders the retail split-screen layout on
+each peer. One full-screen local camera per device is a planned presentation
+change, not a capability of the portable protocol or the current runtime.
+Its automated native gate has completed five consecutive three-minute public
+relay sessions through a match transition and a second gameplay epoch, plus a
+peer-loss watchdog fault test. Platform-specific implementation details live
+in the [PC-port repository](https://github.com/TheGh0stShip/BattleTanx-Global-Assault-PC-Port).
 
 ## Build and test
 
