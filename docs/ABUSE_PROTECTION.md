@@ -1,9 +1,12 @@
 # Public API abuse protection: operations guide
 
 The master service rate-limits every public route that can allocate, extend,
-or probe server-side state. Limits are token buckets kept in Azure Table
-Storage, so every Function instance enforces the same budget. The code is in
-`server/master/src/{address,ratelimit,guard,security_log}.js`. The threat
+or probe server-side state. Mutation and allocation limits are token buckets
+kept in Azure Table Storage, so every Function instance enforces the same
+budget. Read-only list, status, and dashboard limits are deliberately kept
+per Function instance: making each read contend on a shared CAS row turns a
+read flood into extra storage load and can delay the lobby query itself. The
+code is in `server/master/src/{address,ratelimit,guard,security_log}.js`. The threat
 analysis is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
 ## Caller identity
@@ -34,7 +37,7 @@ Addresses are normalized before use:
 | `auth_failure` | address | 10 | 20/hour | each rejected host secret, resume or join token | Credential guessing; once empty, all credential routes from that address get 429 |
 | `lobby_create` | global | 60 | 240/hour | lobby creation attempt | Bounds lobby-table growth |
 | `heartbeat` | lobby | 8 | 720/hour | successful (authenticated) heartbeat | Bounds authority writes; unauthenticated callers cannot drain it |
-| `read` | address | 60 | 3600/hour | list, status, dashboard | Table-scan pressure |
+| `read` | address, per instance | 60 | 3600/hour | list, status, dashboard | Fast shedding before table scans, without a shared CAS hot row |
 
 "Success only" scopes are checked before the request runs but spent only when
 it succeeds. A household polling a full lobby therefore spends only its
@@ -75,10 +78,12 @@ perHour (0, 360000] are rejected at startup; a limit cannot be disabled.
 
 ## Storage and cost
 
-- **Table rows.** Buckets live in table `BTGA_RATE_LIMIT_TABLE` (default
+- **Table rows.** Durable mutation/allocation buckets live in table
+  `BTGA_RATE_LIMIT_TABLE` (default
   `BtgaRateLimits`) in the existing `AzureWebJobsStorage` account. Each subject
   is HMAC-keyed into one of 4096 shards per scope, so the table can never
-  exceed 7 × 4096 = 28,672 rows of under 100 bytes each (under 3 MB). Rows
+  exceed 6 × 4096 = 24,576 rows of under 100 bytes each (under 3 MB). Read
+  buckets are local and do not create table rows. Rows
   hold no address, lobby ID or credential. Rows idle long enough to refill
   completely are purged opportunistically, at most 200 per scope per instance
   per hour. Because of the shard bound, cardinality does not depend on purging.
@@ -98,6 +103,11 @@ perHour (0, 360000] are rejected at startup; a limit cannot be disabled.
   seat churn, table growth or credential guessing.
 
 ## Store outage behavior (availability vs. security)
+
+Read-only routes always use the in-memory per-instance limiter and therefore
+do not depend on the rate-limit table. Their effective aggregate limit is
+multiplied by the number of active instances and resets when an instance
+recycles; the configured 1–2 instance cap bounds that tradeoff.
 
 If the table cannot be reached, or answers slower than 1.5 s, each instance
 falls back to an in-memory limiter with the same limits. It emits one
@@ -149,5 +159,6 @@ request volume, are one short line each, and the degraded event is throttled.
 3. Confirm the Function App's maximum instance count is set (1–2 for public
    testing).
 4. After deployment, send a burst of joins against a test lobby and confirm
-   `429` with `Retry-After`. Sending a spoofed left-hand `X-Forwarded-For`
-   entry must not change the outcome.
+   `429` with `Retry-After`. Burst `/status` concurrently and confirm fast
+   `200`/`429` responses without storage timeouts. Sending a spoofed left-hand
+   `X-Forwarded-For` entry must not change either outcome.

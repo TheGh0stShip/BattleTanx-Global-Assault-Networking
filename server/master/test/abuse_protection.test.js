@@ -445,6 +445,38 @@ test("public reads are limited per address", async () => {
     assert.equal((await a.call("health", { method: "GET", ip: "203.0.113.4" })).status, 200);
 });
 
+test("public reads use the fast limiter while mutations remain durable", async () => {
+    const calls = { durable: [], fast: [] };
+    const makeLimiter = (kind) => ({
+        async consume(scope, subject, cost) {
+            calls[kind].push({ scope, subject, cost });
+            return { allowed: true, retryAfter: 0 };
+        }
+    });
+    const guard = new RequestGuard({
+        limiter: makeLimiter("durable"), readLimiter: makeLimiter("fast")
+    });
+    const request = {
+        method: "GET", headers: { "x-forwarded-for": "203.0.113.44" }
+    };
+
+    await guard.admit("status", request);
+    await guard.admit("dashboard", request);
+    assert.deepEqual(calls.durable, []);
+    assert.deepEqual(calls.fast.map((call) => call.scope), ["read", "read"]);
+
+    const admitted = await guard.admit("join", {
+        method: "POST", headers: request.headers,
+        body: { protocol: 1, build: "pc-v1", platform: "pc" }
+    }, { lobbyId: "lobby-1" });
+    await guard.recordSuccess(admitted.context);
+    assert.deepEqual(calls.durable.map((call) => [call.scope, call.cost]), [
+        ["lobby_source", 1], ["source", 0], ["lobby", 0],
+        ["source", 1], ["lobby", 1]
+    ]);
+    assert.equal(calls.fast.length, 2);
+});
+
 test("storage outage keeps the API available with per-instance limits", async () => {
     const a = await api();
     const lobby = await a.host();

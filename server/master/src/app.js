@@ -65,14 +65,17 @@ function productionGuard() {
         const limits = parseLimits(process.env.BTGA_RATE_LIMITS);
         const log = new SecurityLog(key);
         const tableName = process.env.BTGA_RATE_LIMIT_TABLE || "BtgaRateLimits";
+        const fastLimiter = localFallback(key, limits, undefined, log);
         const limiter = new RateLimiter({
             store: new LazyRateStore(() => AzureRateLimitStore.connect(connection, tableName)),
             secretKey: key,
             limits,
             log,
-            fallback: localFallback(key, limits, undefined, log)
+            fallback: fastLimiter
         });
-        productionGuardInstance = new RequestGuard({ limiter, log, trustedHops: trustedHopsSetting() });
+        productionGuardInstance = new RequestGuard({
+            limiter, readLimiter: fastLimiter, log, trustedHops: trustedHopsSetting()
+        });
     }
     return productionGuardInstance;
 }

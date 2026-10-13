@@ -71,12 +71,16 @@ function rateLimitedResponse(retryAfter) {
 }
 
 class RequestGuard {
-    // options: limiter (RateLimiter), log (SecurityLog), trustedHops.
-    constructor({ limiter, log = null, trustedHops = 1 }) {
+    // options: limiter (durable RateLimiter), readLimiter (fast per-instance
+    // limiter for public reads), log (SecurityLog), trustedHops. Public read
+    // requests already query the lobby table; routing their throttle through
+    // another shared CAS row amplifies a read flood into storage contention.
+    constructor({ limiter, readLimiter = limiter, log = null, trustedHops = 1 }) {
         if (!Number.isInteger(trustedHops) || trustedHops < 1 || trustedHops > 4) {
             throw new Error("trustedHops must be an integer from 1 to 4");
         }
         this.limiter = limiter;
+        this.readLimiter = readLimiter;
         this.log = log;
         this.trustedHops = trustedHops;
     }
@@ -95,7 +99,8 @@ class RequestGuard {
         for (const [scope, subject, mode] of charges) {
             const cost = mode === "pre" ? 1 : 0;
             if (mode === "post") context.deferred.push([scope, subject]);
-            const result = await this.limiter.consume(scope, subject, cost, context);
+            const activeLimiter = scope === "read" ? this.readLimiter : this.limiter;
+            const result = await activeLimiter.consume(scope, subject, cost, context);
             if (!result.allowed) {
                 if (this.log) {
                     this.log.emit("rate_limited", {
