@@ -100,7 +100,7 @@ perHour (0, 360000] are rejected at startup; a limit cannot be disabled.
 - **Function executions are the real cost exposure.** A 429 still runs a
   Function. Flex Consumption bills per execution and per GB-second. The bound
   on that spend is the Function App's **maximum instance count** together
-  with `host.json` `maxConcurrentRequests` (50), not the rate limiter. Under
+  with `host.json` `maxConcurrentRequests` (8), not the rate limiter. Under
   the $60/month budget, keep maximum instances at 1–2 for public testing. At
   that scale, sustained flooding is capped at a few hundred requests per
   second, and budget alerts at $30, $45 and $54 give warning well before the

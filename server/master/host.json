@@ -11,8 +11,8 @@
   "extensions": {
     "http": {
       "routePrefix": "",
-      "maxOutstandingRequests": 100,
-      "maxConcurrentRequests": 50
+      "maxOutstandingRequests": 16,
+      "maxConcurrentRequests": 8
     }
   }
 }
