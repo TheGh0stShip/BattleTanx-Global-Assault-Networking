@@ -130,6 +130,7 @@ size_t btga_net_encode_authoritative_frame(
     destination[7] = 0U;
     put_u32(destination + 8, frame->tick);
     put_u64(destination + 12, frame->state_digest);
+    put_u32(destination + 20, frame->random_seed);
     for (index = 0U; index < BTGA_NET_AUTHORITY_PLAYER_LIMIT; ++index) {
         uint8_t* output = destination + BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE +
                           index * BTGA_NET_INPUT_FRAME_SIZE;
@@ -161,6 +162,7 @@ int btga_net_decode_authoritative_frame(
     frame->received_mask = payload[4];
     frame->tick = get_u32(payload + 8);
     frame->state_digest = get_u64(payload + 12);
+    frame->random_seed = get_u32(payload + 20);
     for (index = 0U; index < BTGA_NET_AUTHORITY_PLAYER_LIMIT; ++index) {
         const uint8_t* input = payload + BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE +
                                index * BTGA_NET_INPUT_FRAME_SIZE;

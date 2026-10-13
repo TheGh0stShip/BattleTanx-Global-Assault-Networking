@@ -72,9 +72,10 @@ int main(void) {
     }
     {
         static const uint8_t expected_authority[] = {
-            0x01, 0x02, 0x0F, 0x0F, 0x0B, 0x00, 0x00, 0x00,
+            0x02, 0x02, 0x0F, 0x0F, 0x0B, 0x00, 0x00, 0x00,
             0x01, 0x02, 0x03, 0x04,
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+            0xA1, 0xB2, 0xC3, 0xD4,
             0x00, 0x01, 0xFE, 0x03, 0x00, 0x02, 0x04, 0xFB,
             0x80, 0x00, 0x80, 0x7F, 0x40, 0x00, 0x00, 0x00
         };
@@ -82,6 +83,7 @@ int main(void) {
         BtgaNetAuthoritativeFrame decoded_frame = {0};
         frame.tick = UINT32_C(0x01020304);
         frame.state_digest = UINT64_C(0x1122334455667788);
+        frame.random_seed = UINT32_C(0xA1B2C3D4);
         frame.occupied_mask = 0x0FU;
         frame.connected_mask = 0x0FU;
         frame.received_mask = 0x0BU;
@@ -97,6 +99,7 @@ int main(void) {
             &decoded_frame, payload, encoded_size));
         CHECK(decoded_frame.tick == frame.tick);
         CHECK(decoded_frame.state_digest == frame.state_digest);
+        CHECK(decoded_frame.random_seed == frame.random_seed);
         CHECK(decoded_frame.occupied_mask == frame.occupied_mask);
         CHECK(decoded_frame.connected_mask == frame.connected_mask);
         CHECK(decoded_frame.received_mask == frame.received_mask);

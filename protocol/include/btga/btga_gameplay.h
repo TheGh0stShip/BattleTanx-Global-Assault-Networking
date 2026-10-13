@@ -15,9 +15,9 @@ extern "C" {
 #define BTGA_NET_FRAME_SYNC_TYPE 1U
 #define BTGA_NET_FRAME_SYNC_SIZE 12U
 #define BTGA_NET_AUTHORITY_PLAYER_LIMIT 4U
-#define BTGA_NET_AUTHORITY_FRAME_VERSION 1U
+#define BTGA_NET_AUTHORITY_FRAME_VERSION 2U
 #define BTGA_NET_AUTHORITY_FRAME_TYPE 2U
-#define BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE 20U
+#define BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE 24U
 #define BTGA_NET_AUTHORITY_FRAME_SIZE \
     (BTGA_NET_AUTHORITY_FRAME_HEADER_SIZE + \
      BTGA_NET_AUTHORITY_PLAYER_LIMIT * BTGA_NET_INPUT_FRAME_SIZE)
@@ -52,6 +52,7 @@ typedef struct BtgaNetFrameSync {
 typedef struct BtgaNetAuthoritativeFrame {
     uint32_t tick;
     uint64_t state_digest;
+    uint32_t random_seed;
     uint8_t occupied_mask;
     uint8_t connected_mask;
     uint8_t received_mask;
