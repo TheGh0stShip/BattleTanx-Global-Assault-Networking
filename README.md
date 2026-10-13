@@ -43,11 +43,12 @@ The retail simulation remains four-player until every fixed-size gameplay,
 camera, HUD, spawn and scoring structure is audited. A 16-slot packet format is
 not a claim that the game already supports 16 active tanks.
 
-The definitive PC port currently renders the retail split-screen layout on
-each peer. One full-screen local camera per device is a planned presentation
-change, not a capability of the portable protocol or the current runtime.
-Its automated native gate has completed five consecutive three-minute public
-relay sessions through a match transition and a second gameplay epoch, plus a
+The definitive PC port now expands the local player's camera to full screen
+and suppresses the remote camera without changing shared simulation state.
+Duplicate remote-player HUD elements remain a known presentation issue. This
+is a port feature rather than a portable-protocol responsibility. Its
+automated native gate has completed five consecutive three-minute public relay
+sessions through a match transition and a second gameplay epoch, plus a
 peer-loss watchdog fault test. Platform-specific implementation details live
 in the [PC-port repository](https://github.com/TheGh0stShip/BattleTanx-Global-Assault-PC-Port).
 
