@@ -5,12 +5,23 @@ const { BUILD_PATTERN, MasterError, MasterService, PROTOCOL_VERSION } = require(
 const { AzureLobbyStore, AzureRateLimitStore } = require("./store");
 const { stripPort, trustedSource } = require("./address");
 const { RequestGuard } = require("./guard");
+const { PublicReadCache } = require("./public_cache");
 const { RateLimiter, MemoryRateStore, localFallback, parseLimits } = require("./ratelimit");
 const { SecurityLog } = require("./security_log");
 
 let servicePromise;
 let productionGuardInstance;
 const testGuards = new WeakMap();
+const publicReadCaches = new WeakMap();
+
+function publicCache(service) {
+    let cache = publicReadCaches.get(service);
+    if (cache === undefined) {
+        cache = new PublicReadCache();
+        publicReadCaches.set(service, cache);
+    }
+    return cache;
+}
 
 // Connects to the shared rate-limit table on first use and retries at most
 // once a minute after a failure. While it is unavailable every operation
@@ -254,13 +265,15 @@ async function dispatch(operation, req, bindingData, serviceFactory, guard, cont
 async function route(operation, req, bindingData, serviceFactory, guard) {
     const service = await serviceFactory();
     if (operation === "status") {
-        return response(await service.publicSnapshot());
+        return response(await publicCache(service).get("status", () => service.publicSnapshot()));
     }
     if (operation === "dashboard") {
         if (bindingData.path) {
             return response({ error: "not_found", message: "route not found" }, 404);
         }
-        return htmlResponse(dashboardHtml(await service.publicSnapshot()));
+        return htmlResponse(dashboardHtml(
+            await publicCache(service).get("status", () => service.publicSnapshot())
+        ));
     }
     const lobbyId = bindingData.lobbyId;
     if (operation === "lobbies") {
@@ -272,7 +285,11 @@ async function route(operation, req, bindingData, serviceFactory, guard) {
         if (!Number.isInteger(protocol) || protocol !== PROTOCOL_VERSION || !BUILD_PATTERN.test(build || "")) {
             throw new MasterError(400, "invalid_field", "protocol or build is invalid");
         }
-        return response({ lobbies: await service.listLobbies(protocol, build) });
+        const key = `lobbies:${protocol}:${build}`;
+        const lobbies = await publicCache(service).get(
+            key, () => service.listLobbies(protocol, build)
+        );
+        return response({ lobbies });
     }
     if (operation === "heartbeat") {
         const data = jsonBody(req);

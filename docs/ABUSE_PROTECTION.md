@@ -9,6 +9,11 @@ read flood into extra storage load and can delay the lobby query itself. The
 code is in `server/master/src/{address,ratelimit,guard,security_log}.js`. The threat
 analysis is in [THREAT_MODEL.md](THREAT_MODEL.md).
 
+Public projections also use a two-second, 64-entry per-instance single-flight
+cache. Concurrent requests for the same status or lobby listing share one
+Table Storage query. Failures are not cached, and the short TTL bounds visible
+staleness after a lobby change.
+
 ## Caller identity
 
 Azure Functions front ends append the connecting address to
