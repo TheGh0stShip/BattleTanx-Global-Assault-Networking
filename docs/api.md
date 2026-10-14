@@ -28,7 +28,7 @@ Table Storage and is suitable for deployment checks.
 | `capabilities` | unsigned 32-bit bit mask |
 | `region` | 1–24 printable characters |
 | `max_players` | 1–4; the current authoritative simulation is four-player |
-| `current_players` | 1–`max_players` |
+| `current_players` | 1–`max_players` for peer hosts; 0–`max_players` when capability bit 5 identifies a headless dedicated authority |
 | `state` | optional `lobby` (default) or `playing` |
 | `udp_port` | optional legacy direct-UDP port; omit for relay-only play |
 
@@ -53,6 +53,12 @@ The following routes require `Authorization: Bearer HOST_SECRET`:
   refreshed host `relay_token`. `state` may be omitted for older clients.
   Dedicated authorities should also send `"seat_mask": M`, the bitmask of
   player seats currently connected (bit N is seat N, below `max_players`).
+  Their public `current_players` is derived from the population count of this
+  mask; the authority itself consumes no player seat. Dedicated registration
+  therefore starts at zero. For a safe master-first rollout, an older authority
+  may still submit one at registration or a stale count in a heartbeat; the
+  service normalizes registration to zero and ignores that heartbeat count in
+  favor of the authenticated `seat_mask`.
   Each listed seat's lease is confirmed and renewed for ten minutes; seats not
   listed are left to expire. Once a lobby has sent `seat_mask`, new seats are
   provisional until a heartbeat lists them.
@@ -74,7 +80,8 @@ Join is anonymous, so in lobbies whose authority sends `seat_mask` a new seat
 is provisional: it lasts 60 seconds unless a heartbeat confirms it. When every
 seat is taken, a new join may take over the oldest unconfirmed seat that is at
 least 30 seconds old. Confirmed seats are never reassigned while their lease
-lives. One caller address holds at most two unconfirmed seats per lobby;
+lives. One caller address may hold at most four unconfirmed seats per lobby so
+a four-player household behind one NAT can join together;
 a further join from it replaces its oldest one. Lobbies that have never sent
 `seat_mask` keep ten-minute leases with no renewal, as before.
 

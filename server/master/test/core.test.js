@@ -3,7 +3,9 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const test = require("node:test");
-const { MasterError, MasterService, MemoryLobbyStore } = require("../src/core");
+const {
+    CAP_DEDICATED_AUTHORITY, MasterError, MasterService, MemoryLobbyStore
+} = require("../src/core");
 
 function fixture() {
     const state = { now: 1_800_000_000 };
@@ -80,6 +82,48 @@ test("heartbeat can move a session between lobby and playing", async () => {
         service.heartbeat(created.lobby.id, auth, 1, "private"),
         (error) => error instanceof MasterError && error.code === "invalid_field"
     );
+});
+
+test("dedicated authority is not counted as a player", async () => {
+    const { service, registration } = fixture();
+    const created = await service.register({
+        ...registration,
+        capabilities: registration.capabilities | CAP_DEDICATED_AUTHORITY,
+        current_players: 0
+    }, "203.0.113.7");
+    assert.equal(created.lobby.current_players, 0);
+    let snapshot = await service.publicSnapshot();
+    assert.equal(snapshot.players, 0);
+    assert.equal(snapshot.open_lobbies, 1);
+
+    const auth = `Bearer ${created.host_secret}`;
+    const updated = await service.heartbeat(
+        created.lobby.id, auth, 0, "lobby", 0);
+    assert.equal(updated.current_players, 0);
+    snapshot = await service.publicSnapshot();
+    assert.equal(snapshot.players, 0);
+
+    await assert.rejects(
+        service.register({ ...registration, current_players: 0 }, "203.0.113.8"),
+        (error) => error instanceof MasterError && error.code === "invalid_field"
+    );
+    // A pre-rollout authority may still report itself as player one. The
+    // dedicated seat mask is authoritative, so that value is normalized.
+    const legacyHeartbeat = await service.heartbeat(
+        created.lobby.id, auth, 1, "lobby", 0);
+    assert.equal(legacyHeartbeat.current_players, 0);
+    await assert.rejects(
+        service.heartbeat(created.lobby.id, auth, 0, "lobby"),
+        (error) => error instanceof MasterError && error.code === "invalid_field"
+    );
+
+    const legacyRegistration = await service.register({
+        ...registration,
+        name: "Older Dedicated Authority",
+        capabilities: registration.capabilities | CAP_DEDICATED_AUTHORITY,
+        current_players: 1
+    }, "203.0.113.9");
+    assert.equal(legacyRegistration.lobby.current_players, 0);
 });
 
 test("join tokens are bound to a lobby and expire", async () => {
@@ -178,10 +222,22 @@ test("all declared platforms and full capability mask are accepted", async () =>
     for (const platform of ["pc", "vita", "xbox", "xbox360", "ps3", "ps4", "ps5", "3ds"]) {
         const { service, registration } = fixture();
         const result = await service.register(
-            { ...registration, platform, capabilities: 0xffffffff },
+            {
+                ...registration,
+                platform,
+                capabilities: 0xffffffff,
+                current_players: 0
+            },
             "2001:db8::7"
         );
         assert.equal(result.lobby.platform, platform);
         assert.equal(result.lobby.capabilities, 0xffffffff);
+        assert.equal(result.lobby.current_players, 0);
     }
+});
+
+test("peer-host registration still requires and counts its local player", async () => {
+    const { service, registration } = fixture();
+    const result = await service.register(registration, "203.0.113.7");
+    assert.equal(result.lobby.current_players, 1);
 });

@@ -5,6 +5,8 @@ const net = require("node:net");
 
 const PROTOCOL_VERSION = 1;
 const MAX_PLAYERS = 4;
+// Must remain aligned with BTGA_NET_CAP_DEDICATED_AUTHORITY in btga_net.h.
+const CAP_DEDICATED_AUTHORITY = 1 << 5;
 const LOBBY_TTL_SECONDS = 90;
 const JOIN_TOKEN_TTL_SECONDS = 30;
 const SEAT_LEASE_TTL_SECONDS = 10 * 60;
@@ -234,7 +236,18 @@ class MasterService {
             throw new MasterError(400, "invalid_field", "platform is not supported");
         }
         const maxPlayers = integer(data, "max_players", 1, MAX_PLAYERS);
-        const currentPlayers = integer(data, "current_players", 1, maxPlayers);
+        const capabilities = integer(data, "capabilities", 0, 0xffffffff);
+        // A peer host occupies a player seat; a headless authority does not.
+        // Its seat_mask heartbeat is the source of truth for actual players.
+        const minimumPlayers = (capabilities & CAP_DEDICATED_AUTHORITY) !== 0 ? 0 : 1;
+        const reportedPlayers = integer(
+            data, "current_players", minimumPlayers, maxPlayers);
+        // The authority process itself never consumes a seat. Accept an older
+        // authority that still reports itself as player one, but normalize the
+        // public value to zero. This keeps master-first deployments compatible
+        // while seat_mask remains the sole source of truth after registration.
+        const currentPlayers = (capabilities & CAP_DEDICATED_AUTHORITY) !== 0
+            ? 0 : reportedPlayers;
         const udpPort = data.udp_port === undefined
             ? 0 : integer(data, "udp_port", 1, 65535);
         const now = Math.floor(this.clock());
@@ -246,7 +259,7 @@ class MasterService {
             protocol,
             build,
             platform,
-            capabilities: integer(data, "capabilities", 0, 0xffffffff),
+            capabilities,
             region: text(data, "region", 24),
             max_players: maxPlayers,
             current_players: currentPlayers,
@@ -320,13 +333,14 @@ class MasterService {
                 throw new MasterError(404, "not_found", "lobby not found");
             }
             this.authenticate(lobby, bearer);
-            if (!Number.isInteger(currentPlayers) || currentPlayers < 1 ||
+            const minimumPlayers =
+                (lobby.capabilities & CAP_DEDICATED_AUTHORITY) !== 0 ? 0 : 1;
+            if (!Number.isInteger(currentPlayers) || currentPlayers < minimumPlayers ||
                 currentPlayers > lobby.max_players) {
                 throw new MasterError(
                     400, "invalid_field", "current_players is outside the lobby limit");
             }
             const now = Math.floor(this.clock());
-            lobby.current_players = currentPlayers;
             if (state !== undefined) {
                 if (typeof state !== "string" || !VALID_STATES.has(state.toLowerCase())) {
                     throw new MasterError(
@@ -351,6 +365,18 @@ class MasterService {
                     }));
                 lobby.seat_mask_seen = true;
             }
+            let authoritativePlayers = currentPlayers;
+            if ((lobby.capabilities & CAP_DEDICATED_AUTHORITY) !== 0) {
+                if (seatMask === undefined) {
+                    throw new MasterError(
+                        400, "invalid_field", "a dedicated authority heartbeat needs seat_mask");
+                }
+                authoritativePlayers = 0;
+                for (let mask = seatMask; mask !== 0; mask >>>= 1) {
+                    authoritativePlayers += mask & 1;
+                }
+            }
+            lobby.current_players = authoritativePlayers;
             lobby.updated_at = now;
             lobby.expires_at = now + LOBBY_TTL_SECONDS;
             if (!await this.store.compareAndSwap(lobby, lobby._etag)) continue;
@@ -541,6 +567,7 @@ class MasterService {
 
 module.exports = {
     BUILD_PATTERN,
+    CAP_DEDICATED_AUTHORITY,
     JOIN_TOKEN_TTL_SECONDS,
     RESUME_TOKEN_TTL_SECONDS,
     SEAT_LEASE_TTL_SECONDS,

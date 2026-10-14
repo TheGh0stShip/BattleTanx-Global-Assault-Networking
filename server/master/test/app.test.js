@@ -4,7 +4,9 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const test = require("node:test");
 const { handle, normalizeForwardedAddress, observedIp } = require("../src/app");
-const { MasterService, MemoryLobbyStore } = require("../src/core");
+const {
+    CAP_DEDICATED_AUTHORITY, MasterService, MemoryLobbyStore
+} = require("../src/core");
 
 function setup() {
     const { privateKey } = crypto.generateKeyPairSync("ed25519");
@@ -120,6 +122,50 @@ test("HTTP lifecycle registers, lists, joins, validates, and removes", async () 
         headers: { authorization }
     }), { lobbyId }, factory);
     assert.equal(result.status, 204);
+});
+
+test("HTTP dedicated lifecycle reports only occupied player seats", async () => {
+    const { factory } = setup();
+    let result = await handle("lobbies", request("POST", {
+        name: "Dedicated City",
+        protocol: 1,
+        build: "pc-v0.3.0",
+        platform: "pc",
+        capabilities: CAP_DEDICATED_AUTHORITY,
+        region: "us-central",
+        max_players: 4,
+        current_players: 0
+    }, {
+        headers: { "x-forwarded-for": "198.51.100.2, 203.0.113.7:443" }
+    }), {}, factory);
+    assert.equal(result.status, 201);
+    const created = JSON.parse(result.body);
+    assert.equal(created.lobby.current_players, 0);
+
+    result = await handle("heartbeat", request("POST", {
+        current_players: 2,
+        state: "playing",
+        seat_mask: 0b0101
+    }, {
+        headers: { authorization: `Bearer ${created.host_secret}` }
+    }), { lobbyId: created.lobby.id }, factory);
+    assert.equal(result.status, 200);
+    assert.equal(JSON.parse(result.body).current_players, 2);
+
+    result = await handle("status", request("GET"), {}, factory);
+    const status = JSON.parse(result.body);
+    assert.equal(status.players, 2);
+    assert.equal(status.games, 1);
+
+    result = await handle("heartbeat", request("POST", {
+        current_players: 2,
+        state: "playing",
+        seat_mask: 0b0001
+    }, {
+        headers: { authorization: `Bearer ${created.host_secret}` }
+    }), { lobbyId: created.lobby.id }, factory);
+    assert.equal(result.status, 200);
+    assert.equal(JSON.parse(result.body).current_players, 1);
 });
 
 test("forwarded addresses are validated and request bodies are bounded", async () => {
