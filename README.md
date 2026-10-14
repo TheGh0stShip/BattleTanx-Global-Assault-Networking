@@ -95,6 +95,22 @@ This keeps route discovery deterministic and avoids making any platform port
 depend on Azure-specific libraries; only the service's Table Storage adapter
 has an Azure dependency.
 
+Native port recovery tests can run the same master-service core entirely on
+loopback, without Azure or production credentials:
+
+```sh
+cd server/master
+BTGA_LOCAL_MASTER_PORT=30419 \
+BTGA_RELAY_HOST=127.0.0.1 BTGA_RELAY_PORT=30420 \
+node src/local_server.js
+```
+
+The first output line is JSON containing the loopback API URL and the ephemeral
+relay public key. `BTGA_LOCAL_MASTER_READY_FILE=/path/to/file.json` writes that
+record atomically for unattended test orchestration. The adapter refuses a
+non-loopback HTTP bind, stores all lobby state in memory, and is test tooling;
+it is not an alternate production deployment.
+
 The relay has no npm dependencies and can be exercised locally without Azure:
 
 ```sh
