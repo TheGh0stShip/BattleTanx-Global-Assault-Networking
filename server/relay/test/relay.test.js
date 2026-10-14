@@ -194,6 +194,59 @@ test("a refreshed signed authority token can replace a changed NAT mapping", asy
     assert.equal(core.endpoints.has("IPv4|127.0.0.1|42001"), true);
 });
 
+test("authority and client rebuild a session after complete relay state loss", async () => {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW,
+        { address: "relay.example", udp_port: 30420 }, privateKey
+    );
+    const registration = await service.register({
+        name: "Relay restart", protocol: 1, build: "test", platform: "pc",
+        capabilities: 1 << 5, region: "local", max_players: 4,
+        current_players: 0
+    }, "203.0.113.1");
+    const request = { protocol: 1, build: "test", platform: "pc" };
+    const joined = await service.join(registration.lobby.id, request);
+    const sessionId = BigInt(`0x${registration.session_id}`);
+    const authority = remote(42010);
+    const client = remote(42011);
+
+    const firstRelay = new RelayCore(publicKey, { clock: () => NOW });
+    assert.equal(decodeEnvelope(firstRelay.handle(encodeEnvelope(
+        TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(registration.relay_token)
+    ), authority)[0].packet).sourceSlot, 0);
+    assert.equal(decodeEnvelope(firstRelay.handle(encodeEnvelope(
+        TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(joined.join_token)
+    ), client)[0].packet).sourceSlot, 1);
+
+    // Discard every in-memory relay session and endpoint, as a process restart
+    // would. The control plane remains authoritative and issues fresh tokens.
+    const restartedRelay = new RelayCore(publicKey, { clock: () => NOW });
+    const heartbeat = await service.heartbeat(
+        registration.lobby.id, `Bearer ${registration.host_secret}`,
+        1, "playing", 1
+    );
+    const resumed = await service.join(registration.lobby.id, {
+        ...request, resume_token: joined.resume_token
+    });
+    assert.equal(resumed.session_id, registration.session_id);
+    assert.equal(resumed.seat, joined.seat);
+    assert.equal(decodeEnvelope(restartedRelay.handle(encodeEnvelope(
+        TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(heartbeat.relay_token)
+    ), authority)[0].packet).sourceSlot, 0);
+    assert.equal(decodeEnvelope(restartedRelay.handle(encodeEnvelope(
+        TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(resumed.join_token)
+    ), client)[0].packet).sourceSlot, 1);
+
+    const gameplay = innerDatagram(sessionId, 1);
+    const forwarded = restartedRelay.handle(
+        encodeEnvelope(TYPE_DATA, sessionId, 1, 0, gameplay), client
+    );
+    assert.equal(forwarded.length, 1);
+    assert.deepEqual(forwarded[0].remote, authority);
+    assert.deepEqual(decodeEnvelope(forwarded[0].packet).payload, gameplay);
+});
+
 test("a fresh signed token resumes the same stable player seat", async () => {
     const auth = await credentials();
     const core = new RelayCore(auth.publicKey, { clock: () => NOW });
