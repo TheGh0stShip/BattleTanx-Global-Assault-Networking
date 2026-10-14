@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test test/abuse_protection.test.js test/app.test.js test/core.test.js test/public_cache.test.js test/seat_leases.test.js"
+    "test": "node --test test/abuse_protection.test.js test/app.test.js test/core.test.js test/local_server.test.js test/public_cache.test.js test/seat_leases.test.js"
   },
   "dependencies": {
     "@azure/data-tables": "^13.3.1"
