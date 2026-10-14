@@ -4,7 +4,7 @@
 const assert = require("node:assert/strict");
 const dgram = require("node:dgram");
 const {
-    TYPE_BIND, TYPE_BOUND, TYPE_DATA, decodeEnvelope, encodeEnvelope
+    BROADCAST_SLOT, TYPE_BIND, TYPE_BOUND, TYPE_DATA, decodeEnvelope, encodeEnvelope
 } = require("../server/relay/src/protocol");
 
 const base = (process.argv[2] || "").replace(/\/$/u, "");
@@ -75,8 +75,8 @@ function gameplayPacket(sessionId, peerId) {
 async function main() {
     let lobbyId;
     let hostSecret;
-    const host = dgram.createSocket("udp4");
-    const client = dgram.createSocket("udp4");
+    const authority = dgram.createSocket("udp4");
+    const clients = Array.from({ length: 4 }, () => dgram.createSocket("udp4"));
     const resumedClient = dgram.createSocket("udp4");
     try {
         const registration = await request("/lobbies", {
@@ -86,80 +86,109 @@ async function main() {
                 protocol: 1,
                 build: "public-relay-smoke-v1",
                 platform: "pc",
-                capabilities: 0,
+                capabilities: 1 << 5,
                 region: "eastus",
                 max_players: 4,
-                current_players: 1
+                current_players: 0
             })
         });
         lobbyId = registration.lobby.id;
         hostSecret = registration.host_secret;
-        const joined = await request(`/lobbies/${lobbyId}/join`, {
-            method: "POST",
-            body: JSON.stringify({
-                protocol: 1, build: "public-relay-smoke-v1", platform: "pc"
-            })
-        });
-        assert.deepEqual(joined.relay, registration.relay);
-        assert.equal(joined.session_id, registration.session_id);
-        assert.equal(joined.seat, 0);
-        assert.equal(typeof joined.resume_token, "string");
+        assert.equal(registration.lobby.current_players, 0);
+        const joined = [];
+        for (let seat = 0; seat < 4; ++seat) {
+            const result = await request(`/lobbies/${lobbyId}/join`, {
+                method: "POST",
+                body: JSON.stringify({
+                    protocol: 1, build: "public-relay-smoke-v1", platform: "pc"
+                })
+            });
+            assert.deepEqual(result.relay, registration.relay);
+            assert.equal(result.session_id, registration.session_id);
+            assert.equal(result.seat, seat);
+            assert.equal(typeof result.resume_token, "string");
+            joined.push(result);
+        }
         assert.match(registration.relay.address, /^[A-Za-z0-9.-]+$/u);
 
         const relay = registration.relay;
         const sessionId = BigInt(`0x${registration.session_id}`);
-        await Promise.all([bind(host), bind(client)]);
+        await Promise.all([bind(authority), ...clients.map((client) => bind(client))]);
 
-        await send(host, encodeEnvelope(
+        await send(authority, encodeEnvelope(
             TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(registration.relay_token)
         ), relay);
-        const hostBound = decodeEnvelope(await receive(host));
-        assert.equal(hostBound.type, TYPE_BOUND);
-        assert.equal(hostBound.sourceSlot, 0);
+        const authorityBound = decodeEnvelope(await receive(authority));
+        assert.equal(authorityBound.type, TYPE_BOUND);
+        assert.equal(authorityBound.sourceSlot, 0);
 
-        await send(client, encodeEnvelope(
-            TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(joined.join_token)
-        ), relay);
-        const clientBound = decodeEnvelope(await receive(client));
-        assert.equal(clientBound.type, TYPE_BOUND);
-        assert.equal(clientBound.sourceSlot, 1);
+        for (let seat = 0; seat < clients.length; ++seat) {
+            await send(clients[seat], encodeEnvelope(
+                TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(joined[seat].join_token)
+            ), relay);
+            const bound = decodeEnvelope(await receive(clients[seat]));
+            assert.equal(bound.type, TYPE_BOUND);
+            assert.equal(bound.sourceSlot, seat + 1);
 
-        const gameplay = gameplayPacket(sessionId, 1);
-        await send(client, encodeEnvelope(TYPE_DATA, sessionId, 1, 0, gameplay), relay);
-        const forwarded = decodeEnvelope(await receive(host));
-        assert.equal(forwarded.type, TYPE_DATA);
-        assert.equal(forwarded.sourceSlot, 1);
-        assert.deepEqual(forwarded.payload, gameplay);
+            const gameplay = gameplayPacket(sessionId, seat + 1);
+            await send(clients[seat], encodeEnvelope(
+                TYPE_DATA, sessionId, seat + 1, 0, gameplay), relay);
+            const forwarded = decodeEnvelope(await receive(authority));
+            assert.equal(forwarded.type, TYPE_DATA);
+            assert.equal(forwarded.sourceSlot, seat + 1);
+            assert.deepEqual(forwarded.payload, gameplay);
+        }
+
+        const broadcast = gameplayPacket(sessionId, 0);
+        await send(authority, encodeEnvelope(
+            TYPE_DATA, sessionId, 0, BROADCAST_SLOT, broadcast), relay);
+        const delivered = await Promise.all(clients.map((client) => receive(client)));
+        for (const packet of delivered) {
+            const envelope = decodeEnvelope(packet);
+            assert.equal(envelope.type, TYPE_DATA);
+            assert.equal(envelope.sourceSlot, 0);
+            assert.deepEqual(envelope.payload, broadcast);
+        }
+
+        const heartbeat = await request(`/lobbies/${lobbyId}/heartbeat`, {
+            method: "PUT",
+            headers: { authorization: `Bearer ${hostSecret}` },
+            body: JSON.stringify({
+                current_players: 4, state: "playing", seat_mask: 0x0f
+            })
+        });
+        assert.equal(heartbeat.current_players, 4);
+        assert.equal(heartbeat.state, "playing");
 
         const resumed = await request(`/lobbies/${lobbyId}/join`, {
             method: "POST",
             body: JSON.stringify({
                 protocol: 1, build: "public-relay-smoke-v1", platform: "pc",
-                resume_token: joined.resume_token
+                resume_token: joined[0].resume_token
             })
         });
-        assert.equal(resumed.seat, joined.seat);
-        assert.notEqual(resumed.resume_token, joined.resume_token);
+        assert.equal(resumed.seat, joined[0].seat);
+        assert.notEqual(resumed.resume_token, joined[0].resume_token);
         await bind(resumedClient);
         await send(resumedClient, encodeEnvelope(
             TYPE_BIND, sessionId, 0xffff, 0, Buffer.from(resumed.join_token)
         ), relay);
         const rebound = decodeEnvelope(await receive(resumedClient));
         assert.equal(rebound.type, TYPE_BOUND);
-        assert.equal(rebound.sourceSlot, clientBound.sourceSlot);
+        assert.equal(rebound.sourceSlot, 1);
         await send(resumedClient, encodeEnvelope(
             TYPE_DATA, sessionId, rebound.sourceSlot, 0,
             gameplayPacket(sessionId, rebound.sourceSlot)
         ), relay);
-        const resumedForward = decodeEnvelope(await receive(host));
+        const resumedForward = decodeEnvelope(await receive(authority));
         assert.equal(resumedForward.type, TYPE_DATA);
         assert.equal(resumedForward.sourceSlot, rebound.sourceSlot);
         process.stdout.write(
-            `public relay bind/resume smoke test passed via ${relay.address}:${relay.udp_port}\n`
+            `public four-seat authority/bind/broadcast/resume smoke test passed via ${relay.address}:${relay.udp_port}\n`
         );
     } finally {
-        host.close();
-        client.close();
+        authority.close();
+        for (const client of clients) client.close();
         resumedClient.close();
         if (lobbyId && hostSecret) {
             await request(`/lobbies/${lobbyId}`, {
