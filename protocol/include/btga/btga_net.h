@@ -33,7 +33,9 @@ enum {
     BTGA_NET_CAP_RELAY_UDP = 1U << 1,
     BTGA_NET_CAP_IPV6 = 1U << 2,
     BTGA_NET_CAP_VOICE = 1U << 3,
-    BTGA_NET_CAP_SPECTATOR = 1U << 4
+    BTGA_NET_CAP_SPECTATOR = 1U << 4,
+    /* Lobby gameplay is owned by a headless authority, not a peer host. */
+    BTGA_NET_CAP_DEDICATED_AUTHORITY = 1U << 5
 };
 
 typedef enum BtgaNetMessageType {

@@ -27,7 +27,8 @@ static int test_hello(void) {
 
     memset(&source, 0, sizeof(source));
     source.platform = BTGA_NET_PLATFORM_PS_VITA;
-    source.capabilities = BTGA_NET_CAP_DIRECT_UDP | BTGA_NET_CAP_SPECTATOR;
+    source.capabilities = BTGA_NET_CAP_DIRECT_UDP | BTGA_NET_CAP_SPECTATOR |
+                          BTGA_NET_CAP_DEDICATED_AUTHORITY;
     fill_nonce(source.client_nonce, 0x10U);
     source.join_token = token;
     source.join_token_size = (uint16_t)(sizeof(token) - 1U);
@@ -37,7 +38,8 @@ static int test_hello(void) {
     CHECK(payload[1] == BTGA_NET_PLATFORM_PS_VITA);
     CHECK(payload[2] == 0U && payload[3] == sizeof(token) - 1U);
     CHECK(payload[4] == 0U && payload[5] == 0U && payload[6] == 0U &&
-          payload[7] == (BTGA_NET_CAP_DIRECT_UDP | BTGA_NET_CAP_SPECTATOR));
+          payload[7] == (BTGA_NET_CAP_DIRECT_UDP | BTGA_NET_CAP_SPECTATOR |
+                         BTGA_NET_CAP_DEDICATED_AUTHORITY));
     CHECK(btga_net_decode_hello(&decoded, payload, size));
     CHECK(decoded.platform == source.platform);
     CHECK(decoded.capabilities == source.capabilities);
