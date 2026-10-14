@@ -28,6 +28,7 @@ function createRelayServer(options = {}) {
     }
     const core = new RelayCore(publicKey, {
         ...options,
+        queuedEgress: true,
         maxSessions: options.maxSessions || boundedInteger(
             "BTGA_RELAY_MAX_SESSIONS", 256, 1, 4096
         ),
@@ -39,14 +40,31 @@ function createRelayServer(options = {}) {
         )
     });
     const socket = dgram.createSocket({ type: options.type || "udp6", ipv6Only: false });
+    const sendOutputs = (outputs) => {
+        for (const output of outputs) {
+            socket.send(output.packet, output.remote.port, output.remote.address, (error) => {
+                if (error) core.metrics.dropped += 1;
+            });
+        }
+    };
     socket.on("message", (packet, remote) => {
         if (packet.length > MAX_DATAGRAM) {
             core.metrics.dropped += 1;
             return;
         }
-        for (const output of core.handle(packet, remote)) {
-            socket.send(output.packet, output.remote.port, output.remote.address);
-        }
+        sendOutputs(core.handle(packet, remote));
+    });
+    socket.on("error", (error) => {
+        core.metrics.socketErrors = (core.metrics.socketErrors || 0) + 1;
+        if (options.onError) options.onError(error);
+    });
+    const drainTimer = setInterval(() => sendOutputs(core.drain()), 2);
+    const purgeTimer = setInterval(() => core.purge(), 1000);
+    drainTimer.unref();
+    purgeTimer.unref();
+    socket.on("close", () => {
+        clearInterval(drainTimer);
+        clearInterval(purgeTimer);
     });
     return { core, socket };
 }

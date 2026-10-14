@@ -134,6 +134,14 @@ The production environment also enforces a global 160 KiB/s egress token
 bucket. At continuous saturation that is about 425 GB of relay payload per
 30-day month, before normal idle periods; it prevents session fan-out from
 turning the per-peer rate limits into unbounded Azure egress.
+Authenticated gameplay egress is held in bounded per-recipient queues and
+drained round-robin across sessions and then recipients. This preserves the
+same global cost ceiling while preventing a checkpoint transfer or one busy
+match from consuming every immediately available token. The relay envelope
+does not identify recovery traffic, so the scheduler deliberately treats all
+valid gameplay datagrams alike instead of guessing from encrypted or evolving
+inner payloads. Queue overflow drops the newly arrived datagram and is counted
+in the relay's dropped metric.
 Update the relay by checking out another reviewed commit and rerunning the
 installer. Inspect service health with:
 

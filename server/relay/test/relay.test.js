@@ -171,6 +171,124 @@ test("global egress bucket bounds authenticated relay traffic", async () => {
     assert.equal(core.metrics.forwarded, 0);
 });
 
+async function bindSession(core, auth, basePort, clientCount = 1) {
+    const authority = remote(basePort);
+    core.handle(encodeEnvelope(
+        TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(auth.hostToken)
+    ), authority);
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW, null, auth.privateKey
+    );
+    const clients = [];
+    for (let seat = 0; seat < clientCount; ++seat) {
+        const token = service.issueAdmissionToken({
+            session: auth.sessionId.toString(16).padStart(16, "0"),
+            protocol: 1, role: "client", seat, max_players: 4,
+            expires: NOW + 90, nonce: (basePort + seat).toString(16).padStart(16, "0")
+        });
+        const client = remote(basePort + seat + 1);
+        core.handle(encodeEnvelope(
+            TYPE_BIND, auth.sessionId, 0xffff, 0, Buffer.from(token)
+        ), client);
+        clients.push(client);
+    }
+    return { authority, clients };
+}
+
+test("queued egress fairly serves two saturated sessions under the global ceiling", async () => {
+    const first = await credentials();
+    const packetBytes = 24 + innerDatagram(first.sessionId).length;
+    const core = new RelayCore(first.publicKey, {
+        clock: () => NOW, queuedEgress: true,
+        egressBytesPerSecond: packetBytes * 2
+    });
+    // Both credential sets must use the same signing key accepted by one relay.
+    const service = new MasterService(
+        new MemoryLobbyStore(), Buffer.from(SECRET), () => NOW,
+        { address: "relay.example", udp_port: 30420 }, first.privateKey
+    );
+    const registration = await service.register({
+        name: "second", protocol: 1, build: "test", platform: "pc",
+        capabilities: 2, region: "local", max_players: 4, current_players: 1
+    }, "203.0.113.2");
+    const joined = await service.join(registration.lobby.id, {
+        protocol: 1, build: "test", platform: "pc"
+    });
+    const secondAuth = {
+        sessionId: BigInt(`0x${registration.session_id}`),
+        hostToken: registration.relay_token, clientToken: joined.join_token,
+        privateKey: first.privateKey
+    };
+    const a = await bindSession(core, first, 41600);
+    const b = await bindSession(core, secondAuth, 41700);
+    for (let count = 0; count < 8; ++count) {
+        for (const [auth, bound] of [[first, a], [secondAuth, b]]) {
+            const inner = innerDatagram(auth.sessionId, 1);
+            core.handle(encodeEnvelope(TYPE_DATA, auth.sessionId, 1, 0, inner),
+                bound.clients[0]);
+        }
+    }
+    const output = core.drain(NOW);
+    assert.equal(output.length, 2);
+    assert.deepEqual(new Set(output.map((item) => item.remote.port)),
+        new Set([a.authority.port, b.authority.port]));
+    assert.equal(output.reduce((sum, item) => sum + item.packet.length, 0), packetBytes * 2);
+});
+
+test("broadcast scheduling gives all four recipients an equal first opportunity", async () => {
+    const auth = await credentials();
+    const packetBytes = 24 + innerDatagram(auth.sessionId).length;
+    const core = new RelayCore(auth.publicKey, {
+        clock: () => NOW, queuedEgress: true,
+        egressBytesPerSecond: packetBytes * 4
+    });
+    const bound = await bindSession(core, auth, 41800, 4);
+    const inner = innerDatagram(auth.sessionId, 0);
+    for (let count = 0; count < 8; ++count) {
+        core.handle(encodeEnvelope(
+            TYPE_DATA, auth.sessionId, 0, BROADCAST_SLOT, inner
+        ), bound.authority);
+    }
+    const output = core.drain(NOW);
+    assert.equal(output.length, 4);
+    assert.deepEqual(new Set(output.map((item) => item.remote.port)),
+        new Set(bound.clients.map((client) => client.port)));
+});
+
+test("queued egress remains bounded and clock rollback cannot mint tokens", async () => {
+    let now = NOW;
+    const auth = await credentials();
+    const packetBytes = 24 + innerDatagram(auth.sessionId).length;
+    const core = new RelayCore(auth.publicKey, {
+        clock: () => now, queuedEgress: true, egressQueuePackets: 2,
+        egressBytesPerSecond: packetBytes
+    });
+    const bound = await bindSession(core, auth, 41900);
+    const inner = innerDatagram(auth.sessionId, 1);
+    for (let count = 0; count < 4; ++count) {
+        core.handle(encodeEnvelope(TYPE_DATA, auth.sessionId, 1, 0, inner),
+            bound.clients[0]);
+    }
+    assert.equal(core.sessions.values().next().value.egress.get(0).length, 2);
+    assert.equal(core.drain(now).length, 1);
+    now -= 100;
+    assert.equal(core.drain(now).length, 0);
+    now = NOW + 1;
+    assert.equal(core.drain(now).length, 1);
+});
+
+test("invalid datagrams do not trigger session-wide purge work", async () => {
+    const auth = await credentials();
+    const core = new RelayCore(auth.publicKey, { clock: () => NOW });
+    let purgeCalls = 0;
+    core.purge = () => { purgeCalls += 1; };
+    for (let count = 0; count < 1000; ++count) {
+        assert.deepEqual(core.handle(Buffer.alloc(24), remote(41950)), []);
+    }
+    assert.equal(purgeCalls, 0);
+    assert.equal(core.metrics.dropped, 1000);
+});
+
 test("a refreshed signed authority token can replace a changed NAT mapping", async () => {
     const auth = await credentials();
     const core = new RelayCore(auth.publicKey, { clock: () => NOW });
